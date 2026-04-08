@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 
 import '../config/env.dart';
@@ -16,8 +17,18 @@ class RecipeGeneratorService {
   RecipeGeneratorService._();
   static final RecipeGeneratorService instance = RecipeGeneratorService._();
 
+  void _log(String msg) {
+    if (kDebugMode) debugPrint('[RecipeGeneratorService] $msg');
+  }
+
   static const _endpoint =
       'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent';
+
+  // NOTE: The Gemini API key is passed via the x-goog-api-key header rather
+  // than a query parameter to avoid key exposure in server/proxy logs.
+  // The key itself is injected at build time via --dart-define and compiled
+  // into the binary. For production hardening, proxy this call through a
+  // Supabase Edge Function so the key never leaves the server.
 
   // ──────────────────────────────────────────────────────────
   // Public API
@@ -29,10 +40,14 @@ class RecipeGeneratorService {
     required String channelName,
     required String videoId,
   }) async {
+    _log('Generating recipe for "$videoTitle" (id: $videoId)');
     final prompt = _buildPrompt(transcript, videoTitle, channelName);
     final responseText = await _callGemini(prompt);
+    _log('Gemini response received, extracting JSON');
     final json = _extractJson(responseText);
-    return _mapToRecipe(json, videoId: videoId, channelName: channelName);
+    final recipe = _mapToRecipe(json, videoId: videoId, channelName: channelName);
+    _log('Recipe mapped: "${recipe.title}" with ${recipe.steps.length} steps');
+    return recipe;
   }
 
   // ──────────────────────────────────────────────────────────
@@ -111,7 +126,7 @@ Rules:
   // ──────────────────────────────────────────────────────────
 
   Future<String> _callGemini(String prompt) async {
-    final uri = Uri.parse('$_endpoint?key=${Env.geminiApiKey}');
+    final uri = Uri.parse(_endpoint);
 
     final body = jsonEncode({
       'contents': [
@@ -132,7 +147,10 @@ Rules:
       response = await http
           .post(
             uri,
-            headers: {'Content-Type': 'application/json'},
+            headers: {
+              'Content-Type': 'application/json',
+              'x-goog-api-key': Env.geminiApiKey,
+            },
             body: body,
           )
           .timeout(const Duration(seconds: 60));
@@ -176,12 +194,31 @@ Rules:
 
     try {
       final decoded = jsonDecode(response.body) as Map<String, dynamic>;
-      final candidates = decoded['candidates'] as List<dynamic>;
-      final content =
-          candidates[0]['content'] as Map<String, dynamic>;
-      final parts = content['parts'] as List<dynamic>;
+      final candidates = (decoded['candidates'] as List<dynamic>?) ?? [];
+      if (candidates.isEmpty) {
+        throw const AppException(
+          'Could not parse recipe. Try a different video.',
+          code: 'gemini_empty_response',
+        );
+      }
+      final content = candidates[0]['content'] as Map<String, dynamic>?;
+      if (content == null) {
+        throw const AppException(
+          'Could not parse recipe. Try a different video.',
+          code: 'gemini_empty_content',
+        );
+      }
+      final parts = (content['parts'] as List<dynamic>?) ?? [];
+      if (parts.isEmpty) {
+        throw const AppException(
+          'Could not parse recipe. Try a different video.',
+          code: 'gemini_empty_parts',
+        );
+      }
       return parts[0]['text'] as String;
-    } catch (_) {
+    } on AppException {
+      rethrow;
+    } catch (e) {
       throw const AppException(
         'Could not parse recipe. Try a different video.',
         code: 'gemini_parse_failed',

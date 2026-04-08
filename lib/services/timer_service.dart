@@ -18,6 +18,11 @@ class TimerService {
   DateTime? _endTime;
   int? _scheduledNotificationId;
 
+  // Stopwatch tracks elapsed time during foreground ticking,
+  // avoiding sensitivity to system clock adjustments (DST, NTP).
+  final Stopwatch _stopwatch = Stopwatch();
+  int _remainingAtResume = 0; // remaining seconds when stopwatch was last started
+
   static const _hiveBox = 'cooking_state';
   static const _endTimeKey = 'timer_end_time';
 
@@ -33,23 +38,36 @@ class TimerService {
     remainingSeconds = durationSeconds;
     isCompleted = false;
     _endTime = DateTime.now().add(Duration(seconds: durationSeconds));
+    _remainingAtResume = durationSeconds;
+    _stopwatch
+      ..reset()
+      ..start();
     _startTicking();
   }
 
   void pause() {
     _cancelTimer();
+    _stopwatch.stop();
     isRunning = false;
   }
 
   void resume() {
     if (isCompleted || remainingSeconds <= 0) return;
     _endTime = DateTime.now().add(Duration(seconds: remainingSeconds));
+    _remainingAtResume = remainingSeconds;
+    _stopwatch
+      ..reset()
+      ..start();
     _startTicking();
   }
 
   void reset() {
     _cancelTimer();
+    _stopwatch
+      ..stop()
+      ..reset();
     remainingSeconds = totalSeconds;
+    _remainingAtResume = totalSeconds;
     isRunning = false;
     isCompleted = false;
     _endTime = null;
@@ -58,6 +76,7 @@ class TimerService {
 
   void dispose() {
     _cancelTimer();
+    _stopwatch.stop();
     _cancelScheduledNotification();
     _clearPersistedEndTime();
   }
@@ -114,8 +133,9 @@ class TimerService {
   void _startTicking() {
     isRunning = true;
     _timer = Timer.periodic(const Duration(seconds: 1), (_) {
-      final now = DateTime.now();
-      final remaining = _endTime!.difference(now).inSeconds;
+      // Use stopwatch elapsed time to avoid clock-change sensitivity.
+      final elapsed = _stopwatch.elapsed.inSeconds;
+      final remaining = _remainingAtResume - elapsed;
 
       if (remaining <= 0) {
         remainingSeconds = 0;

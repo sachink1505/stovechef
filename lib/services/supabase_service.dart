@@ -1,5 +1,7 @@
+import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import '../config/env.dart';
 import '../models/recipe.dart';
 import '../models/user_profile.dart';
 import 'app_exception.dart';
@@ -10,11 +12,16 @@ class SupabaseService {
 
   SupabaseClient get _client => Supabase.instance.client;
 
+  void _log(String msg) {
+    if (kDebugMode) debugPrint('[SupabaseService] $msg');
+  }
+
   // ──────────────────────────────────────────────────────────
   // AUTH
   // ──────────────────────────────────────────────────────────
 
   Future<void> signInWithOtp(String email) async {
+    _log('Sending OTP to $email');
     try {
       await _client.auth.signInWithOtp(email: email, shouldCreateUser: true);
     } on AuthException catch (e) {
@@ -28,6 +35,7 @@ class SupabaseService {
   }
 
   Future<AuthResponse> verifyOtp(String email, String otp) async {
+    _log('Verifying OTP for $email');
     try {
       final response = await _client.auth.verifyOTP(
         email: email,
@@ -195,6 +203,7 @@ class SupabaseService {
   }
 
   Future<Recipe> createRecipe(Recipe recipe) async {
+    _log('Creating recipe: "${recipe.title}"');
     _requireUid();
     try {
       final data = await _client
@@ -337,6 +346,7 @@ class SupabaseService {
       if (completedAt != null) 'completed_at': completedAt.toIso8601String(),
     };
 
+
     if (updates.isEmpty) return;
 
     try {
@@ -380,11 +390,44 @@ class SupabaseService {
   // DAILY LIMIT
   // ──────────────────────────────────────────────────────────
 
+  /// Atomically checks the daily limit and increments the count if allowed.
+  ///
+  /// Calls the `check_and_increment_daily_limit` Postgres RPC which performs
+  /// the check and increment in a single transaction, preventing race conditions
+  /// when two requests run concurrently.
+  ///
+  /// Returns `(count, limit, allowed)` — if `allowed` is false, the caller
+  /// should NOT proceed with recipe generation (limit already reached).
+  /// The count is NOT incremented when `allowed` is false.
+  Future<({int count, int limit, bool allowed})> checkAndIncrementDailyLimit() async {
+    _log('Checking daily limit');
+    final uid = _requireUid();
+    try {
+      final result = await _client.rpc(
+        'check_and_increment_daily_limit',
+        params: {'p_user_id': uid, 'p_date': _todayString()},
+      ) as Map<String, dynamic>;
+
+      final count = (result['count'] as int?) ?? 0;
+      final limit = (result['limit'] as int?) ?? Env.dailyRecipeLimit;
+      final allowed = (result['allowed'] as bool?) ?? false;
+      return (count: count, limit: limit, allowed: allowed);
+    } on PostgrestException catch (e) {
+      throw _mapPostgrestException(e);
+    } catch (e) {
+      throw AppException(
+        'Could not check your daily limit.',
+        code: 'daily_limit_check_failed',
+      );
+    }
+  }
+
+  /// Kept for backwards compatibility with any tooling scripts.
+  /// Prefer [checkAndIncrementDailyLimit] in production flows.
   Future<({int count, int limit, bool allowed})> checkDailyLimit() async {
     final uid = _requireUid();
     try {
       final today = _todayString();
-
       final logRow = await _client
           .from('daily_generation_log')
           .select('count')
@@ -392,9 +435,8 @@ class SupabaseService {
           .eq('generation_date', today)
           .maybeSingle();
       final limitStr = await getConfig('daily_recipe_limit');
-
       final count = (logRow?['count'] as int?) ?? 0;
-      final limit = int.tryParse(limitStr ?? '') ?? 5;
+      final limit = int.tryParse(limitStr ?? '') ?? Env.dailyRecipeLimit;
       return (count: count, limit: limit, allowed: count < limit);
     } on PostgrestException catch (e) {
       throw _mapPostgrestException(e);
@@ -409,7 +451,6 @@ class SupabaseService {
   Future<void> incrementDailyCount() async {
     final uid = _requireUid();
     try {
-      // Uses Postgres ON CONFLICT to atomically increment.
       await _client.rpc(
         'increment_daily_generation_count',
         params: {'p_user_id': uid, 'p_date': _todayString()},
