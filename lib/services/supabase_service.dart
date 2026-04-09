@@ -101,8 +101,11 @@ class SupabaseService {
   }) async {
     final uid = _requireUid();
 
+    final email = _client.auth.currentUser?.email ?? '';
+
     final updates = <String, dynamic>{
       'id': uid,
+      'email': email,
       'name': ?name,
       if (foodPreference != null) 'food_preference': foodPreference.toJson(),
       'phone': ?phone,
@@ -110,10 +113,14 @@ class SupabaseService {
     };
 
     try {
+      _log('Upserting profile for $uid: $updates');
       await _client.from('profiles').upsert(updates);
+      _log('Profile upsert succeeded');
     } on PostgrestException catch (e) {
+      _log('Profile upsert failed (PostgrestException): code=${e.code} message=${e.message} details=${e.details}');
       throw _mapPostgrestException(e);
     } catch (e) {
+      _log('Profile upsert failed (unknown): $e');
       throw AppException(
         'Could not update your profile. Please try again.',
         code: 'profile_update_failed',

@@ -139,58 +139,147 @@ class RecipeCreationService {
       return;
     }
 
-    // ── Stage 3: Extract transcript ───────────────────────
+    // ── Stage 3: Generate recipe (edge function → client fallback) ──
     yield _progress(
       RecipeCreationStage.extractingTranscript,
       0.25,
-      'Watching the video...',
+      'Extracting video information...',
     );
 
     if (_cancelled) return;
 
-    String transcript;
-    Map<String, String> metadata;
+    late Recipe generatedRecipe;
+
+    // Primary path: Supabase Edge Function (server-side transcript + Gemini)
+    bool edgeFunctionSucceeded = false;
+    AppException? edgeFunctionError;
+
     try {
-      final results = await _withRetry(() async {
-        final t = await _transcriptService.getTranscript(videoId);
-        final m = await _transcriptService.getVideoMetadata(videoId);
-        return (t, m);
-      });
-      transcript = results.$1;
-      metadata = results.$2;
+      _log('Calling edge function for $videoId...');
+
+      yield _progress(
+        RecipeCreationStage.generatingRecipe,
+        0.55,
+        'Creating your recipe...',
+      );
+
+      generatedRecipe = await _withRetry(
+          () => _generatorService.generateRecipeViaEdgeFunction(
+                videoId: videoId,
+              ));
+      _log('Edge function recipe: "${generatedRecipe.title}"');
+      edgeFunctionSucceeded = true;
     } on AppException catch (e) {
-      yield _failed(e.message);
-      return;
+      _log('Edge function failed (${e.code}): ${e.message} — trying client-side fallback');
+      edgeFunctionError = e;
     }
 
     if (_cancelled) return;
 
-    yield _progress(
-      RecipeCreationStage.extractingTranscript,
-      0.45,
-      'Reading the recipe...',
-    );
+    // Fallback: client-side transcript extraction + direct Gemini call
+    if (!edgeFunctionSucceeded) {
+      _log('Starting client-side fallback...');
 
-    // ── Stage 4: Generate recipe with Gemini ──────────────
-    if (_cancelled) return;
+      yield _progress(
+        RecipeCreationStage.extractingTranscript,
+        0.35,
+        'Watching the video...',
+      );
 
-    yield _progress(
-      RecipeCreationStage.generatingRecipe,
-      0.55,
-      'Creating your recipe...',
-    );
+      // Fetch metadata
+      Map<String, String> metadata;
+      try {
+        metadata = await _withRetry(
+            () => _transcriptService.getVideoMetadata(videoId));
+        _log('Metadata fetched: title="${metadata['title']}", author="${metadata['author']}"');
+      } on AppException catch (e) {
+        _log('Metadata fetch failed: ${e.message}');
+        // Surface the edge function error if it's more informative
+        yield _failed(edgeFunctionError?.message ?? e.message);
+        return;
+      }
 
-    Recipe generatedRecipe;
-    try {
-      generatedRecipe = await _withRetry(() => _generatorService.generateRecipe(
-            transcript: transcript,
-            videoTitle: metadata['title'] ?? '',
-            channelName: metadata['author'] ?? '',
-            videoId: videoId,
-          ));
-    } on AppException catch (e) {
-      yield _failed(e.message);
-      return;
+      if (_cancelled) return;
+
+      // Try captions
+      String? transcript;
+      String transcriptLanguage = 'en';
+      bool useAudio = false;
+
+      _log('Trying to fetch captions (client-side)...');
+      try {
+        final result = await _withRetry(
+            () => _transcriptService.getTranscript(videoId));
+        transcript = result.text;
+        transcriptLanguage = result.languageCode;
+        _log('Captions found (${result.languageCode}), ${transcript.length} chars');
+      } on AppException catch (e) {
+        if (e.code == 'no_captions') {
+          _log('No captions — will fall back to audio');
+          useAudio = true;
+        } else {
+          _log('Caption fetch failed: ${e.code} - ${e.message}');
+          yield _failed(edgeFunctionError?.message ?? e.message);
+          return;
+        }
+      }
+
+      if (_cancelled) return;
+
+      yield _progress(
+        RecipeCreationStage.generatingRecipe,
+        0.55,
+        'Creating your recipe...',
+      );
+
+      if (useAudio) {
+        try {
+          _log('Downloading audio for $videoId...');
+          final audio = await _withRetry(
+              () => _transcriptService.getAudioBytes(videoId));
+          _log('Audio downloaded: ${audio.bytes.length} bytes, mime: ${audio.mimeType}');
+
+          if (_cancelled) return;
+
+          yield _progress(
+            RecipeCreationStage.generatingRecipe,
+            0.60,
+            'Processing audio...',
+          );
+
+          _log('Calling Gemini with audio...');
+          generatedRecipe = await _withRetry(() =>
+              _generatorService.generateRecipeFromAudio(
+                audioBytes: audio.bytes,
+                mimeType: audio.mimeType,
+                videoTitle: metadata['title'] ?? '',
+                channelName: metadata['author'] ?? '',
+                videoId: videoId,
+              ));
+          _log('Recipe generated from audio: "${generatedRecipe.title}"');
+        } on AppException catch (e) {
+          _log('Audio recipe generation failed: ${e.code} - ${e.message}');
+          yield _failed(edgeFunctionError?.message ?? e.message);
+          return;
+        }
+      } else {
+        try {
+          _log('Calling Gemini with transcript (${transcript!.length} chars, lang: $transcriptLanguage)...');
+          generatedRecipe = await _withRetry(() =>
+              _generatorService.generateRecipe(
+                transcript: transcript!,
+                transcriptLanguage: transcriptLanguage,
+                videoTitle: metadata['title'] ?? '',
+                channelName: metadata['author'] ?? '',
+                videoId: videoId,
+              ));
+          _log('Recipe generated from transcript: "${generatedRecipe.title}"');
+        } on AppException catch (e) {
+          _log('Transcript recipe generation failed: ${e.code} - ${e.message}');
+          yield _failed(edgeFunctionError?.message ?? e.message);
+          return;
+        }
+      }
     }
 
     if (_cancelled) return;
@@ -211,11 +300,15 @@ class RecipeCreationService {
     );
 
     try {
+      _log('Saving recipe to Supabase...');
       final saved = await _supabaseService.createRecipe(generatedRecipe);
+      _log('Recipe saved with id: ${saved.id}');
       await _supabaseService.addRecipeToUser(saved.id);
+      _log('Recipe added to user library');
       // Daily count already incremented atomically in Stage 2b.
       yield _completed(saved);
     } on AppException catch (e) {
+      _log('Save failed: ${e.code} - ${e.message}');
       yield _failed(e.message);
     }
   }
@@ -254,16 +347,20 @@ class RecipeCreationService {
 
     for (var attempt = 0; attempt < maxAttempts; attempt++) {
       try {
+        if (attempt > 0) _log('_withRetry: attempt ${attempt + 1}/$maxAttempts');
         return await fn();
       } on AppException catch (e) {
         lastError = e;
+        _log('_withRetry: attempt ${attempt + 1} failed: ${e.code} - ${e.message}');
         if (attempt == maxAttempts - 1) break; // no more retries
 
         final Duration base;
         if (e.code == 'rate_limited') {
           base = const Duration(seconds: 30);
+          _log('_withRetry: rate limited, waiting 30s + jitter');
         } else {
           base = Duration(seconds: 2 * (1 << attempt)); // 2, 4, 8 …
+          _log('_withRetry: waiting ${base.inSeconds}s + jitter before retry');
         }
         // Add up to 5 s of random jitter to avoid thundering herd.
         final jitter = Duration(milliseconds: rng.nextInt(5000));

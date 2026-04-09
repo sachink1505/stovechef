@@ -45,6 +45,7 @@ dependencies:
   flutter_svg: ^2.0.0
   shimmer: ^3.0.0
   http: ^1.2.0
+  youtube_explode_dart: ^2.3.5
   timezone: ^0.9.0
   wakelock_plus: ^1.2.0
 

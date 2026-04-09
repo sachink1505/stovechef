@@ -3,6 +3,7 @@ import 'package:go_router/go_router.dart';
 
 import '../config/theme.dart';
 import '../models/user_profile.dart';
+import '../app.dart';
 import '../services/app_exception.dart';
 import '../services/supabase_service.dart';
 import '../widgets/app_button.dart';
@@ -54,6 +55,7 @@ class _PersonalDetailsScreenState extends State<PersonalDetailsScreen> {
         name: name,
         foodPreference: _foodPreference,
       );
+      resetProfileCompleteCache();
       if (mounted) context.go('/home');
     } on AppException catch (e) {
       if (mounted) {

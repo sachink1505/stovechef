@@ -44,6 +44,12 @@ final _authNotifier = _AuthNotifier();
 // Cached result of isProfileComplete — reset whenever auth state changes.
 bool? _profileComplete;
 
+/// Call this after the profile is updated to clear the cached value,
+/// so the router redirect re-checks profile completeness.
+void resetProfileCompleteCache() {
+  _profileComplete = null;
+}
+
 Future<bool> _checkProfileComplete() async {
   try {
     return await SupabaseService.instance.isProfileComplete();

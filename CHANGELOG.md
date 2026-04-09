@@ -5,6 +5,45 @@ Format: `[YYYY-MM-DD] — commit hash — description`
 
 ---
 
+## 2026-04-09T19:00 — Server-side recipe generation via Supabase Edge Function
+
+**Problem**
+- `youtube_explode_dart` client-side caption fetching returned empty bodies (YouTube requires JS signature decryption for WEB client URLs)
+- Audio download fallback got HTTP 403 from YouTube (bot detection on mobile clients)
+- Gemini API key was exposed client-side
+- Long videos caused Supabase edge function timeouts
+
+**Solution: Moved transcript extraction + Gemini call to Supabase Edge Function**
+
+- Rewrote `supabase/functions/generate-recipe/index.ts` — full pipeline:
+  - Uses YouTube Innertube ANDROID API (`clientVersion: 20.10.38`) to fetch caption tracks with working URLs
+  - Falls back to YouTube oEmbed API for video metadata when innertube returns empty metadata
+  - Parses both JSON (json3) and XML (timedtext format 3) caption responses
+  - Calls Gemini `gemini-2.5-flash-lite` server-side with transcript (API key stays on server)
+  - Falls back to Gemini `fileData` video URL processing for captionless videos
+  - Caps transcript at 8K chars (12K for non-Latin scripts) to stay within edge function timeout
+  - `maxOutputTokens` increased from 4096 to 8192 for complex recipes
+  - Robust JSON extraction from Gemini response (handles markdown fences, surrounding text)
+
+- Added `generateRecipeViaEdgeFunction()` to `lib/services/recipe_generator_service.dart`
+  - Calls edge function via `Supabase.client.functions.invoke()`
+  - Maps response to existing `Recipe` model
+
+- Updated `lib/services/recipe_creation_service.dart`
+  - Primary path: edge function (one server round trip for transcript + recipe)
+  - Fallback: old client-side approach (`youtube_explode_dart` + direct Gemini) if edge function fails
+
+**Previous session changes included in this commit**
+- Switched Gemini model from `gemini-2.0-flash` → `gemini-2.5-flash-lite`
+- Added empty API key guard in `_callGemini()` and `_callGeminiWithAudio()`
+- Fixed caption format: try `json3` before `srv1` XML in `transcript_service.dart`
+- Added `_parseTranscriptFromJson3()` method
+- Added detailed debug logging with Stopwatch timing across all services
+- Created `run_dev.sh` dev convenience script with env validation
+- Created `LEARNINGS.md` with build learnings
+
+---
+
 ## 2026-04-09 — `302619d` — Backend code review fixes
 
 **Security**

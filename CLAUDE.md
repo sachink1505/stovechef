@@ -290,4 +290,13 @@
 
 * #### A user can generate a maximum of 5 recipe per day. Make it configurable so that the number can be updated later. Show a meaningful error when the user exceeds this limit
 
-Done till 4.2 
+## YouTube Video Requirements (for recipe creation)
+
+* Must work with YouTube Shorts URLs
+* Must work with all Indian language videos (Hindi, Tamil, Telugu, Kannada, etc.) — transcript in any language should produce an English recipe
+* Must work even if the video has no captions or description — fallback to alternative transcript extraction methods
+
+
+
+
+
