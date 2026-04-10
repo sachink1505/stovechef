@@ -29,6 +29,7 @@ class _CreateRecipeScreenState extends State<CreateRecipeScreen>
   StreamSubscription<RecipeCreationProgress>? _subscription;
 
   RecipeCreationProgress? _progress;
+  double _displayProgress = 0;
   bool _isOffline = false;
 
   // Pulse animation for the stage icon
@@ -72,6 +73,7 @@ class _CreateRecipeScreenState extends State<CreateRecipeScreen>
     setState(() {
       _isOffline = false;
       _progress = null;
+      _displayProgress = 0;
     });
 
     final isOnline = await ConnectivityService.instance.checkConnectivity();
@@ -98,6 +100,9 @@ class _CreateRecipeScreenState extends State<CreateRecipeScreen>
 
   void _onProgress(RecipeCreationProgress progress) {
     if (!mounted) return;
+    if (progress.progress > _displayProgress) {
+      _displayProgress = progress.progress;
+    }
     setState(() => _progress = progress);
 
     if (progress.stage == RecipeCreationStage.completed &&
@@ -153,6 +158,7 @@ class _CreateRecipeScreenState extends State<CreateRecipeScreen>
 
     return _CreatingView(
       progress: progress,
+      displayProgress: _displayProgress,
       pulseAnim: _pulseAnim,
       onCancel: _onCancel,
     );
@@ -165,11 +171,13 @@ class _CreateRecipeScreenState extends State<CreateRecipeScreen>
 
 class _CreatingView extends StatelessWidget {
   final RecipeCreationProgress progress;
+  final double displayProgress;
   final Animation<double> pulseAnim;
   final VoidCallback onCancel;
 
   const _CreatingView({
     required this.progress,
+    required this.displayProgress,
     required this.pulseAnim,
     required this.onCancel,
   });
@@ -193,7 +201,7 @@ class _CreatingView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final percent = (progress.progress * 100).round();
+    final percent = (displayProgress * 100).round();
     final screenWidth = MediaQuery.of(context).size.width;
 
     return Padding(
@@ -264,7 +272,7 @@ class _CreatingView extends StatelessWidget {
                   AnimatedContainer(
                     duration: const Duration(milliseconds: 500),
                     curve: Curves.easeInOut,
-                    width: (screenWidth - 80) * progress.progress,
+                    width: (screenWidth - 80) * displayProgress,
                     color: AppColors.primary,
                   ),
                 ],

@@ -72,15 +72,27 @@ class RecipeGeneratorService {
   /// complete recipe JSON in one round trip.
   Future<Recipe> generateRecipeViaEdgeFunction({
     required String videoId,
+    String? transcript,
+    String? transcriptLang,
+    String? title,
+    String? author,
   }) async {
-    _log('Calling edge function for videoId: $videoId');
+    _log('Calling edge function for videoId: $videoId (transcript: ${transcript != null ? "${transcript.length} chars" : "none"})');
     final stopwatch = Stopwatch()..start();
+
+    final body = <String, dynamic>{'videoId': videoId};
+    if (transcript != null) {
+      body['transcript'] = transcript;
+      body['transcriptLang'] = transcriptLang ?? 'en';
+      body['title'] = title ?? '';
+      body['author'] = author ?? '';
+    }
 
     late final FunctionResponse response;
     try {
       response = await Supabase.instance.client.functions.invoke(
         'generate-recipe',
-        body: {'videoId': videoId},
+        body: body,
       );
       _log('Edge function responded in ${stopwatch.elapsedMilliseconds}ms, status: ${response.status}');
     } on FunctionException catch (e) {

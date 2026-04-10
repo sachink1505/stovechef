@@ -147,7 +147,7 @@ class _EmailEntryViewState extends State<_EmailEntryView> {
               Text("What's your email?", style: AppTextStyles.displayMedium),
               const SizedBox(height: AppSpacing.sm),
               Text(
-                "We'll send you a 4-digit code to verify",
+                "We'll send you a 6-digit code to verify",
                 style: AppTextStyles.bodyMedium
                     .copyWith(color: AppColors.textSecondary),
               ),
@@ -388,7 +388,7 @@ class _OtpEntryViewState extends State<_OtpEntryView>
               const SizedBox(height: AppSpacing.sm),
               Text.rich(
                 TextSpan(
-                  text: 'We sent a 4-digit code to ',
+                  text: 'We sent a 6-digit code to ',
                   style: AppTextStyles.bodyMedium
                       .copyWith(color: AppColors.textSecondary),
                   children: [
@@ -550,14 +550,14 @@ class _OtpBoxState extends State<_OtpBox> {
       focusNode: FocusNode(),
       onKeyEvent: widget.onKeyEvent,
       child: SizedBox(
-        width: 64,
-        height: 64,
+        width: 46,
+        height: 54,
         child: TextField(
           controller: widget.controller,
           focusNode: widget.focusNode,
           keyboardType: TextInputType.number,
           textAlign: TextAlign.center,
-          maxLength: 4, // allow 4 for paste detection
+          maxLength: 6, // allow 6 for paste detection
           inputFormatters: [FilteringTextInputFormatter.digitsOnly],
           onChanged: widget.onChanged,
           style: AppTextStyles.bodyLarge.copyWith(

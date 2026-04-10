@@ -82,6 +82,39 @@ function extractCaptionTracks(playerResponse: Record<string, unknown>): CaptionT
 }
 
 /**
+ * Fallback: scrape YouTube watch page HTML for caption tracks.
+ * Works from datacenter IPs where innertube ANDROID API may return empty captions.
+ */
+async function fetchCaptionTracksFromPage(videoId: string): Promise<{
+  tracks: CaptionTrack[]
+  metadata: VideoMetadata
+}> {
+  const url = `https://www.youtube.com/watch?v=${videoId}`
+  const res = await fetch(url, {
+    headers: {
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+      'Accept-Language': 'en-US,en;q=0.9',
+    },
+    signal: AbortSignal.timeout(15_000),
+  })
+
+  if (!res.ok) throw new Error(`YouTube page returned ${res.status}`)
+
+  const html = await res.text()
+
+  // Extract ytInitialPlayerResponse from the page
+  const match = html.match(/var ytInitialPlayerResponse\s*=\s*(\{.+?\});/)
+  if (!match) throw new Error('Could not find player response in page HTML')
+
+  const playerResponse = JSON.parse(match[1])
+
+  const tracks = extractCaptionTracks(playerResponse)
+  const metadata = extractMetadata(playerResponse)
+
+  return { tracks, metadata }
+}
+
+/**
  * Select the best caption track.
  * Priority: manual English > auto English > any manual > any auto.
  */
@@ -204,10 +237,9 @@ function buildRecipePrompt(
       'Understand the transcript in its original language but return ALL recipe output (title, ' +
       'descriptions, ingredient names, step instructions) in English.\n'
 
-  return `You are a culinary assistant. Given a transcript from a YouTube cooking video, extract a precise, structured recipe in JSON format.
+  return `You are a culinary assistant that extracts recipes from YouTube cooking video transcripts.
 
-Video title: ${videoTitle}
-Channel: ${channelName}${langNote}
+IMPORTANT: This IS a cooking video. The title is "${videoTitle}" from channel "${channelName}". Even if the transcript contains casual conversation, introductions, or non-cooking segments, focus on extracting the cooking recipe. Look for ingredient mentions, quantities, cooking instructions, temperatures, and timing throughout the ENTIRE transcript.${langNote}
 
 Transcript:
 ${transcript}
@@ -402,10 +434,24 @@ serve(async (req) => {
   }
 
   // Parse request
+  // Accepts two modes:
+  //   1. { videoId } — edge function fetches transcript + calls Gemini (full pipeline)
+  //   2. { videoId, transcript, transcriptLang, title, author } — client already fetched
+  //      transcript, edge function only calls Gemini (keeps API key server-side)
   let videoId: string
+  let clientTranscript: string | null = null
+  let clientTranscriptLang: string | null = null
+  let clientTitle: string | null = null
+  let clientAuthor: string | null = null
   try {
     const body = await req.json()
     videoId = body.videoId
+    if (body.transcript && typeof body.transcript === 'string') {
+      clientTranscript = body.transcript
+      clientTranscriptLang = body.transcriptLang ?? 'en'
+      clientTitle = body.title ?? ''
+      clientAuthor = body.author ?? ''
+    }
   } catch {
     return errorResponse('invalid_input', 'Invalid JSON body', 400)
   }
@@ -421,44 +467,73 @@ serve(async (req) => {
   }
   const model = Deno.env.get('GEMINI_MODEL') ?? 'gemini-2.5-flash-lite'
 
-  // ── Step 1: Fetch player response from YouTube ──
-  let playerResponse: Record<string, unknown>
-  try {
-    playerResponse = await fetchPlayerResponse(videoId)
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : 'Unknown error'
-    return errorResponse('youtube_error', `Failed to fetch video info: ${msg}`, 502)
-  }
-
-  // Check if video is playable
-  const playabilityStatus = (playerResponse.playabilityStatus as Record<string, unknown>) ?? {}
-  if (playabilityStatus.status === 'ERROR' || playabilityStatus.status === 'UNPLAYABLE') {
-    const reason = (playabilityStatus.reason as string) ?? 'This video is unavailable or private.'
-    return errorResponse('video_unavailable', reason, 422)
-  }
-
-  let metadata = extractMetadata(playerResponse)
-
-  // Innertube ANDROID client often returns empty metadata — fall back to oEmbed
-  if (!metadata.title) {
-    try {
-      metadata = await fetchOEmbedMetadata(videoId)
-    } catch {
-      // Non-critical — recipe generation can proceed without metadata
-    }
-  }
-
-  // ── Step 2: Get transcript ──
-  const tracks = extractCaptionTracks(playerResponse)
-  const bestTrack = selectBestTrack(tracks)
-
   let transcript: { text: string; lang: string } | null = null
+  let metadata: VideoMetadata = { title: '', author: '', lengthSeconds: '0' }
 
-  if (bestTrack) {
+  // ── Mode A: Client provided transcript — skip YouTube API entirely ──
+  if (clientTranscript && clientTranscript.length > 50) {
+    console.log(`[generate-recipe] ${videoId}: using client-provided transcript (${clientTranscript.length} chars)`)
+    transcript = { text: clientTranscript, lang: clientTranscriptLang! }
+    metadata = { title: clientTitle ?? '', author: clientAuthor ?? '', lengthSeconds: '0' }
+  } else {
+    // ── Mode B: Edge function fetches transcript from YouTube ──
+    // ── Step 1: Fetch player response from YouTube ──
+    let playerResponse: Record<string, unknown>
     try {
-      transcript = await fetchTranscript(bestTrack)
-    } catch {
-      // Caption URL returned empty — fall through to video fallback
+      playerResponse = await fetchPlayerResponse(videoId)
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Unknown error'
+      return errorResponse('youtube_error', `Failed to fetch video info: ${msg}`, 502)
+    }
+
+    // Check if video is playable
+    const playabilityStatus = (playerResponse.playabilityStatus as Record<string, unknown>) ?? {}
+    if (playabilityStatus.status === 'ERROR' || playabilityStatus.status === 'UNPLAYABLE') {
+      const reason = (playabilityStatus.reason as string) ?? 'This video is unavailable or private.'
+      return errorResponse('video_unavailable', reason, 422)
+    }
+
+    metadata = extractMetadata(playerResponse)
+
+    // Innertube ANDROID client often returns empty metadata — fall back to oEmbed
+    if (!metadata.title) {
+      try {
+        metadata = await fetchOEmbedMetadata(videoId)
+      } catch {
+        // Non-critical — recipe generation can proceed without metadata
+      }
+    }
+
+    // ── Step 2: Get transcript ──
+    let tracks = extractCaptionTracks(playerResponse)
+    console.log(`[generate-recipe] ${videoId}: innertube returned ${tracks.length} caption tracks`)
+
+    // Fallback: if innertube returned no captions (common from datacenter IPs),
+    // scrape the YouTube watch page HTML which embeds the player response with captions.
+    if (tracks.length === 0) {
+      console.log(`[generate-recipe] ${videoId}: trying YouTube page HTML fallback for captions`)
+      try {
+        const pageData = await fetchCaptionTracksFromPage(videoId)
+        tracks = pageData.tracks
+        if (!metadata.title && pageData.metadata.title) {
+          metadata = pageData.metadata
+        }
+        console.log(`[generate-recipe] ${videoId}: page fallback returned ${tracks.length} caption tracks`)
+      } catch (err) {
+        console.error(`[generate-recipe] ${videoId}: page fallback failed:`, err)
+      }
+    }
+
+    const bestTrack = selectBestTrack(tracks)
+    console.log(`[generate-recipe] ${videoId}: best track: ${bestTrack?.languageCode ?? 'none'}`)
+
+    if (bestTrack) {
+      try {
+        transcript = await fetchTranscript(bestTrack)
+        console.log(`[generate-recipe] ${videoId}: transcript ${transcript.text.length} chars, lang=${transcript.lang}`)
+      } catch (err) {
+        console.error(`[generate-recipe] ${videoId}: transcript fetch failed:`, err)
+      }
     }
   }
 
@@ -485,9 +560,11 @@ serve(async (req) => {
     }
   } else {
     // Fallback: try Gemini with video URL (fileData)
+    console.log(`[generate-recipe] ${videoId}: no transcript, trying fileData fallback`)
     try {
       recipeText = await callGeminiWithVideoUrl(videoId, apiKey, model)
-    } catch {
+    } catch (err) {
+      console.error(`[generate-recipe] ${videoId}: fileData fallback failed:`, err)
       return errorResponse(
         'no_captions',
         'This video has no captions and could not be processed. Try a different video.',
@@ -502,10 +579,11 @@ serve(async (req) => {
     recipe = extractRecipeJson(recipeText)
   } catch (err: unknown) {
     const e = err as Record<string, unknown>
+    console.error(`[generate-recipe] ${videoId}: parse failed. Response text (first 500): ${recipeText.slice(0, 500)}`)
     if (e.status && e.code) {
       return errorResponse(e.code as string, e.message as string, e.status as number)
     }
-    return errorResponse('parse_error', 'Could not parse recipe.', 502)
+    return errorResponse('parse_error', 'Could not parse recipe from AI response.', 502)
   }
 
   return jsonResponse({ recipe, metadata })

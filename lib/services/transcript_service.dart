@@ -230,6 +230,177 @@ class TranscriptService {
   }
 
   // ──────────────────────────────────────────────────────────
+  // Innertube ANDROID API (bypasses youtube_explode_dart)
+  // ──────────────────────────────────────────────────────────
+
+  static const _innertubeUrl =
+      'https://www.youtube.com/youtubei/v1/player?prettyPrint=false';
+  static const _androidUserAgent =
+      'com.google.android.youtube/20.10.38 (Linux; U; Android 14)';
+
+  /// Fetches transcript + metadata via YouTube Innertube ANDROID API.
+  ///
+  /// This works from mobile devices (residential IPs) where the ANDROID client
+  /// returns caption track URLs that don't require JS signature decryption.
+  /// Returns null if no captions are available.
+  Future<({String transcript, String lang, String title, String author})?> getTranscriptViaInnertube(
+      String videoId) async {
+    _log('Innertube: fetching player response for $videoId');
+
+    final playerRes = await http.post(
+      Uri.parse(_innertubeUrl),
+      headers: {
+        'Content-Type': 'application/json',
+        'User-Agent': _androidUserAgent,
+      },
+      body: jsonEncode({
+        'videoId': videoId,
+        'context': {
+          'client': {
+            'clientName': 'ANDROID',
+            'clientVersion': '20.10.38',
+          },
+        },
+      }),
+    ).timeout(const Duration(seconds: 15));
+
+    if (playerRes.statusCode != 200) {
+      _log('Innertube: player API returned ${playerRes.statusCode}');
+      return null;
+    }
+
+    final data = jsonDecode(playerRes.body) as Map<String, dynamic>;
+
+    // Check playability
+    final status = (data['playabilityStatus'] as Map<String, dynamic>?)?['status'];
+    if (status == 'ERROR' || status == 'UNPLAYABLE') {
+      _log('Innertube: video is $status');
+      return null;
+    }
+
+    // Extract metadata
+    final videoDetails = data['videoDetails'] as Map<String, dynamic>? ?? {};
+    String title = (videoDetails['title'] as String?) ?? '';
+    String author = (videoDetails['author'] as String?) ?? '';
+
+    // Fallback to oEmbed for metadata
+    if (title.isEmpty) {
+      try {
+        final oEmbed = await http.get(
+          Uri.parse('https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v=$videoId&format=json'),
+        ).timeout(const Duration(seconds: 10));
+        if (oEmbed.statusCode == 200) {
+          final oData = jsonDecode(oEmbed.body) as Map<String, dynamic>;
+          title = (oData['title'] as String?) ?? '';
+          author = (oData['author_name'] as String?) ?? '';
+        }
+      } catch (_) {}
+    }
+
+    // Extract caption tracks
+    final captions = data['captions'] as Map<String, dynamic>? ?? {};
+    final renderer = captions['playerCaptionsTracklistRenderer'] as Map<String, dynamic>? ?? {};
+    final tracks = (renderer['captionTracks'] as List<dynamic>?) ?? [];
+
+    if (tracks.isEmpty) {
+      _log('Innertube: no caption tracks found');
+      return null;
+    }
+
+    _log('Innertube: found ${tracks.length} caption tracks');
+
+    // Select best track (same priority as edge function)
+    Map<String, dynamic>? bestTrack;
+    int bestScore = -1;
+
+    for (final t in tracks) {
+      final track = t as Map<String, dynamic>;
+      final lang = ((track['languageCode'] as String?) ?? '').toLowerCase();
+      final isEnglish = lang.startsWith('en');
+      final isAuto = track['kind'] == 'asr';
+
+      int score;
+      if (isEnglish && !isAuto) {
+        score = 4;
+      } else if (isEnglish && isAuto) {
+        score = 3;
+      } else if (!isEnglish && !isAuto) {
+        score = 2;
+      } else {
+        score = 1;
+      }
+
+      if (score > bestScore) {
+        bestScore = score;
+        bestTrack = track;
+      }
+    }
+
+    if (bestTrack == null) return null;
+
+    final baseUrl = bestTrack['baseUrl'] as String;
+    final lang = (bestTrack['languageCode'] as String?) ?? 'en';
+    _log('Innertube: best track lang=$lang, fetching transcript');
+
+    // Fetch transcript with json3 format
+    final captionUrl = baseUrl.contains('&fmt=')
+        ? baseUrl.replaceFirst(RegExp(r'&fmt=[^&]*'), '&fmt=json3')
+        : '$baseUrl&fmt=json3';
+
+    final captionRes = await http.get(
+      Uri.parse(captionUrl),
+      headers: {'User-Agent': _androidUserAgent},
+    ).timeout(const Duration(seconds: 15));
+
+    if (captionRes.statusCode != 200 || captionRes.body.isEmpty) {
+      _log('Innertube: caption fetch returned ${captionRes.statusCode}, ${captionRes.body.length} bytes');
+      return null;
+    }
+
+    final body = captionRes.body;
+    String? transcript;
+
+    if (body.trimLeft().startsWith('{')) {
+      // JSON format
+      transcript = _parseTranscriptFromJson3(body);
+    } else if (body.trimLeft().startsWith('<')) {
+      // XML format (timedtext format 3 with <s> tags or srv1 with <text> tags)
+      transcript = _parseTranscriptFromXmlTimedtext(body);
+      transcript ??= _parseTranscriptFromXml(body);
+    }
+
+    if (transcript == null || transcript.isEmpty) {
+      _log('Innertube: transcript parsing returned empty');
+      return null;
+    }
+
+    // Cap transcript length
+    final isNonLatin = RegExp(r'[^\u0000-\u024F]').hasMatch(
+        transcript.length > 100 ? transcript.substring(0, 100) : transcript);
+    final maxChars = isNonLatin ? 12000 : 8000;
+    if (transcript.length > maxChars) {
+      transcript = transcript.substring(0, maxChars);
+    }
+
+    _log('Innertube: transcript ready — ${transcript.length} chars, lang=$lang');
+    return (transcript: transcript, lang: lang, title: title, author: author);
+  }
+
+  /// Parse XML timedtext format 3 (<s> tags inside <p> tags).
+  String? _parseTranscriptFromXmlTimedtext(String xml) {
+    final sTagPattern = RegExp(r'<s[^>]*>([^<]*)</s>');
+    final matches = sTagPattern.allMatches(xml);
+    if (matches.isEmpty) return null;
+
+    final parts = matches
+        .map((m) => (m.group(1) ?? '').trim())
+        .where((s) => s.isNotEmpty)
+        .toList();
+
+    return parts.isEmpty ? null : parts.join(' ');
+  }
+
+  // ──────────────────────────────────────────────────────────
   // Caption fetching & parsing
   // ──────────────────────────────────────────────────────────
 

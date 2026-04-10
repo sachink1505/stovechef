@@ -47,5 +47,7 @@ app.*.map.json
 # Secrets — never commit these
 .env
 *.jks
+*.keystore
 key.properties
 android/key.properties
+android/upload-keystore.jks

@@ -5,6 +5,34 @@ Format: `[YYYY-MM-DD] — commit hash — description`
 
 ---
 
+## 2026-04-10T16:30 — Production readiness + hybrid transcript + UI fixes
+
+### Production Readiness
+- Android release signing: generated upload keystore, configured `build.gradle.kts` with signing config
+- Enabled code shrinking (`isMinifyEnabled` + `isShrinkResources`) for release builds
+- Added ProGuard rules for Flutter, Supabase, Google Fonts
+- Created Android adaptive icons with `#FFF8F0` background
+- Regenerated native splash screen with new StoveChef icon
+- Created `build_release.sh` for APK / App Bundle / iOS builds
+- Fixed app display name to "StoveChef" in AndroidManifest and Info.plist
+- Updated `.gitignore` for keystore files
+- Created `.env.example` template
+
+### Hybrid Transcript Architecture (fix for long video failures)
+- Client (phone) fetches transcript via YouTube innertube ANDROID API (works from residential IPs)
+- Sends transcript to edge function which only calls Gemini (API key stays server-side)
+- Edge function supports dual-mode: Mode A (client-provided transcript) and Mode B (server-side fetch)
+- Falls back to legacy `youtube_explode_dart` path if edge function fails entirely
+- Fixes `YoutubeExplodeException: Video returned 403` errors on longer videos
+
+### UI Fixes
+- OTP screen: "4-digit" → "6-digit" copy (matches actual Supabase OTP length)
+- OTP boxes: resized from 64x64 to 46x54 for better spacing with 6 boxes
+- Progress bar: now monotonically increasing (never decreases during recipe creation)
+- Replaced default Flutter counter test with URL utils smoke tests
+
+---
+
 ## 2026-04-09T19:00 — Server-side recipe generation via Supabase Edge Function
 
 **Problem**

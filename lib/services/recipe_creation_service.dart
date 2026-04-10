@@ -150,12 +150,16 @@ class RecipeCreationService {
 
     late Recipe generatedRecipe;
 
-    // Primary path: Supabase Edge Function (server-side transcript + Gemini)
+    // Primary path: fetch transcript locally (innertube ANDROID API works from
+    // residential IPs), then send it to the edge function for Gemini processing
+    // (keeps API key server-side).
     bool edgeFunctionSucceeded = false;
     AppException? edgeFunctionError;
 
     try {
-      _log('Calling edge function for $videoId...');
+      // Step 1: Try fetching transcript from user's device
+      _log('Fetching transcript via innertube for $videoId...');
+      final innertubeResult = await _transcriptService.getTranscriptViaInnertube(videoId);
 
       yield _progress(
         RecipeCreationStage.generatingRecipe,
@@ -163,10 +167,27 @@ class RecipeCreationService {
         'Creating your recipe...',
       );
 
-      generatedRecipe = await _withRetry(
-          () => _generatorService.generateRecipeViaEdgeFunction(
-                videoId: videoId,
-              ));
+      if (_cancelled) return;
+
+      if (innertubeResult != null) {
+        // Step 2a: Send transcript to edge function (Gemini-only mode)
+        _log('Innertube transcript found (${innertubeResult.transcript.length} chars, lang=${innertubeResult.lang}), calling edge function...');
+        generatedRecipe = await _withRetry(
+            () => _generatorService.generateRecipeViaEdgeFunction(
+                  videoId: videoId,
+                  transcript: innertubeResult.transcript,
+                  transcriptLang: innertubeResult.lang,
+                  title: innertubeResult.title,
+                  author: innertubeResult.author,
+                ));
+      } else {
+        // Step 2b: No transcript from innertube — let edge function try on its own
+        _log('No innertube transcript, calling edge function without transcript...');
+        generatedRecipe = await _withRetry(
+            () => _generatorService.generateRecipeViaEdgeFunction(
+                  videoId: videoId,
+                ));
+      }
       _log('Edge function recipe: "${generatedRecipe.title}"');
       edgeFunctionSucceeded = true;
     } on AppException catch (e) {
