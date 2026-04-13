@@ -12,14 +12,20 @@ class Ingredient {
   });
 
   factory Ingredient.fromJson(Map<String, dynamic> json) {
+    final raw = json['aliases'];
+    final List<String> aliases;
+    if (raw is Map) {
+      aliases = raw.values.whereType<String>().toList();
+    } else if (raw is List) {
+      aliases = raw.whereType<String>().toList();
+    } else {
+      aliases = const [];
+    }
     return Ingredient(
       name: json['name'] as String,
       quantity: json['quantity'] as String,
       prepMethod: json['prep_method'] as String?,
-      aliases: (json['aliases'] as List<dynamic>?)
-              ?.map((e) => e as String)
-              .toList() ??
-          const [],
+      aliases: aliases,
     );
   }
 
