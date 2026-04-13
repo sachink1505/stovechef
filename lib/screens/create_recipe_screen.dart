@@ -1,10 +1,12 @@
 import 'dart:async';
+import 'dart:math';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
 
 import '../config/theme.dart';
+import '../data/food_facts.dart';
 import '../services/connectivity_service.dart';
 import '../services/recipe_creation_service.dart';
 import '../services/recipe_generator_service.dart';
@@ -32,6 +34,14 @@ class _CreateRecipeScreenState extends State<CreateRecipeScreen>
   double _displayProgress = 0;
   bool _isOffline = false;
 
+  // Food facts rotation
+  final _random = Random();
+  late String _currentFact;
+  Timer? _factTimer;
+
+  // Generation timeout
+  Timer? _timeoutTimer;
+
   // Pulse animation for the stage icon
   late final AnimationController _pulseController;
   late final Animation<double> _pulseAnim;
@@ -39,6 +49,7 @@ class _CreateRecipeScreenState extends State<CreateRecipeScreen>
   @override
   void initState() {
     super.initState();
+    _currentFact = foodFacts[_random.nextInt(foodFacts.length)];
 
     _service = RecipeCreationService(
       transcriptService: TranscriptService.instance,
@@ -64,9 +75,52 @@ class _CreateRecipeScreenState extends State<CreateRecipeScreen>
   @override
   void dispose() {
     _subscription?.cancel();
+    _factTimer?.cancel();
+    _timeoutTimer?.cancel();
     _service.cancel();
     _pulseController.dispose();
     super.dispose();
+  }
+
+  void _startFactRotation() {
+    _factTimer?.cancel();
+    _factTimer = Timer.periodic(const Duration(seconds: 9), (_) {
+      if (mounted) {
+        setState(() {
+          _currentFact = foodFacts[_random.nextInt(foodFacts.length)];
+        });
+      }
+    });
+  }
+
+  void _stopFactRotation() {
+    _factTimer?.cancel();
+    _factTimer = null;
+  }
+
+  void _startTimeoutTimer() {
+    _timeoutTimer?.cancel();
+    _timeoutTimer = Timer(const Duration(seconds: 180), () {
+      if (!mounted) return;
+      final progress = _progress;
+      if (progress != null && !progress.isTerminal) {
+        _service.cancel();
+        _subscription?.cancel();
+        _stopFactRotation();
+        setState(() {
+          _progress = RecipeCreationProgress(
+            stage: RecipeCreationStage.failed,
+            progress: 0,
+            message: 'This video is taking too long to process. '
+                'The video may be unsupported or in an unsupported language. '
+                'Please try with a different video, preferably a short YouTube video.',
+            error: 'This video is taking too long to process. '
+                'The video may be unsupported or in an unsupported language. '
+                'Please try with a different video, preferably a short YouTube video.',
+          );
+        });
+      }
+    });
   }
 
   Future<void> _startCreation() async {
@@ -74,7 +128,10 @@ class _CreateRecipeScreenState extends State<CreateRecipeScreen>
       _isOffline = false;
       _progress = null;
       _displayProgress = 0;
+      _currentFact = foodFacts[_random.nextInt(foodFacts.length)];
     });
+    _startFactRotation();
+    _startTimeoutTimer();
 
     final isOnline = await ConnectivityService.instance.checkConnectivity();
     if (!mounted) return;
@@ -104,6 +161,11 @@ class _CreateRecipeScreenState extends State<CreateRecipeScreen>
       _displayProgress = progress.progress;
     }
     setState(() => _progress = progress);
+
+    if (progress.isTerminal) {
+      _stopFactRotation();
+      _timeoutTimer?.cancel();
+    }
 
     if (progress.stage == RecipeCreationStage.completed &&
         progress.recipe != null) {
@@ -161,6 +223,7 @@ class _CreateRecipeScreenState extends State<CreateRecipeScreen>
       displayProgress: _displayProgress,
       pulseAnim: _pulseAnim,
       onCancel: _onCancel,
+      foodFact: _currentFact,
     );
   }
 }
@@ -174,12 +237,14 @@ class _CreatingView extends StatelessWidget {
   final double displayProgress;
   final Animation<double> pulseAnim;
   final VoidCallback onCancel;
+  final String foodFact;
 
   const _CreatingView({
     required this.progress,
     required this.displayProgress,
     required this.pulseAnim,
     required this.onCancel,
+    required this.foodFact,
   });
 
   IconData _iconForStage(RecipeCreationStage stage) {
@@ -286,6 +351,38 @@ class _CreatingView extends StatelessWidget {
             '$percent%',
             style:
                 AppTextStyles.bodySmall.copyWith(color: AppColors.textTertiary),
+          ),
+
+          const SizedBox(height: AppSpacing.xxl),
+
+          // Food fact
+          AnimatedSwitcher(
+            duration: const Duration(milliseconds: 500),
+            child: Container(
+              key: ValueKey(foodFact),
+              padding: const EdgeInsets.symmetric(horizontal: 8),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    '\ud83d\udca1',
+                    style: AppTextStyles.bodySmall.copyWith(fontSize: 14),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      foodFact,
+                      style: AppTextStyles.bodySmall.copyWith(
+                        fontSize: 14,
+                        color: AppColors.textSecondary,
+                        fontStyle: FontStyle.italic,
+                      ),
+                      textAlign: TextAlign.left,
+                    ),
+                  ),
+                ],
+              ),
+            ),
           ),
 
           const SizedBox(height: AppSpacing.xxl),

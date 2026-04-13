@@ -5,6 +5,14 @@ Format: `[YYYY-MM-DD] — commit hash — description`
 
 ---
 
+## 2026-04-13T00:00 — UX tweaks: fact rotation interval, fact text size, timeout increase (v1.0.1+3)
+
+- Increased food fact rotation interval from 6s to 9s (50% longer) on recipe creation screen
+- Increased food fact text size from 12px to 14px for better readability
+- Increased recipe generation timeout from 60s to 3 minutes (180s) to handle slow/long videos
+
+---
+
 ## 2026-04-10T16:30 — Production readiness + hybrid transcript + UI fixes
 
 ### Production Readiness
