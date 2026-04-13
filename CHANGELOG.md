@@ -5,6 +5,23 @@ Format: `[YYYY-MM-DD] — commit hash — description`
 
 ---
 
+## 2026-04-14T18:00 — Full catalog: 491 platform recipes seeded (v1.1.0+6)
+
+- Completed batches 2–5 of the platform recipe seeder
+- Total platform recipes now live: **491** across 8 categories
+  - Dal & Curry: 99, Rice & Biryani: 77, Breakfast & Snacks: 73, Sweets & Desserts: 60, Street Food: 59, Bread & Roti: 50, Soups & Lentils: 39, Drinks & Beverages: 34
+- 9 recipes failed mid-run due to Gemini 503 (high demand); seeder is idempotent via `canonical_url` dedup so they can be re-run anytime
+
+---
+
+## 2026-04-14T14:00 — Fix empty Browse Recipes catalog (v1.1.0+5)
+
+- `Ingredient.fromJson` was casting `aliases` to `List<dynamic>`, but seeded recipes store aliases as a JSON object (`{"hindi": "...", "tamil": "..."}`)
+- The cast threw a silent `TypeError` inside the Browse catalog load, leaving the section empty
+- Now handles both shapes (map → `values`, list → strings)
+
+---
+
 ## 2026-04-13T12:00 — Platform recipe catalog: 100 seeded Indian recipes + Browse UI (v1.1.0+4)
 
 ### Database
