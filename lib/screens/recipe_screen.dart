@@ -281,7 +281,7 @@ class _RecipeScreenState extends State<RecipeScreen> {
               _loadRecipe();
             }),
             const SizedBox(height: AppSpacing.md),
-            AppButton.text('Go Back', onPressed: () => context.pop()),
+            AppButton.text('Go Back', onPressed: () => context.canPop() ? context.pop() : context.go('/home')),
           ],
         ),
       ),
@@ -289,8 +289,11 @@ class _RecipeScreenState extends State<RecipeScreen> {
   }
 
   Widget _buildContent(Recipe recipe) {
-    return CustomScrollView(
-      slivers: [
+    return Column(
+      children: [
+        Expanded(
+          child: CustomScrollView(
+            slivers: [
         // ── Parallax header ──────────────────────────────────
         SliverAppBar(
           expandedHeight: 220,
@@ -302,8 +305,10 @@ class _RecipeScreenState extends State<RecipeScreen> {
             collapseMode: CollapseMode.parallax,
             background: _RecipeHeaderBackground(
               recipe: recipe,
-              onBack: () => context.pop(),
-              onYouTube: () => _launchVideo(recipe.videoUrl),
+              onBack: () => context.canPop() ? context.pop() : context.go('/home'),
+              onYouTube: (recipe.videoUrl != null && recipe.videoUrl!.isNotEmpty)
+                  ? () => _launchVideo(recipe.videoUrl!)
+                  : null,
             ),
           ),
         ),
@@ -322,29 +327,20 @@ class _RecipeScreenState extends State<RecipeScreen> {
             index: 1,
             child: Padding(
               padding: const EdgeInsets.fromLTRB(20, 0, 20, 16),
-              child: Column(
+              child: Row(
                 children: [
-                  Row(
-                    children: [
-                      Expanded(
-                        child: AppButton.secondary(
-                          'Ingredients',
-                          onPressed: () => _showIngredientsSheet(recipe),
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: AppButton.secondary(
-                          'Preparation',
-                          onPressed: () => _showPreparationSheet(recipe),
-                        ),
-                      ),
-                    ],
+                  Expanded(
+                    child: AppButton.secondary(
+                      'Ingredients (${recipe.ingredients.length})',
+                      onPressed: () => _showIngredientsSheet(recipe),
+                    ),
                   ),
-                  const SizedBox(height: 12),
-                  AppButton.primary(
-                    _isInProgress ? 'Continue Cooking' : 'Start Cooking',
-                    onPressed: () => _startCooking(recipe),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: AppButton.secondary(
+                      'Preparation',
+                      onPressed: () => _showPreparationSheet(recipe),
+                    ),
                   ),
                 ],
               ),
@@ -375,6 +371,31 @@ class _RecipeScreenState extends State<RecipeScreen> {
         ),
 
         const SliverToBoxAdapter(child: SizedBox(height: 32)),
+            ],
+          ),
+        ),
+
+        // Bottom-fixed Start Cooking button
+        AnimatedEntry(
+          index: 1,
+          child: Container(
+            padding: EdgeInsets.fromLTRB(20, 12, 20, MediaQuery.of(context).padding.bottom + 16),
+            decoration: BoxDecoration(
+              color: AppColors.background,
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.06),
+                  blurRadius: 8,
+                  offset: const Offset(0, -2),
+                ),
+              ],
+            ),
+            child: AppButton.primary(
+              _isInProgress ? 'Continue Cooking' : 'Start Cooking',
+              onPressed: () => _startCooking(recipe),
+            ),
+          ),
+        ),
       ],
     );
   }
@@ -389,12 +410,12 @@ class _RecipeScreenState extends State<RecipeScreen> {
 class _RecipeHeaderBackground extends StatelessWidget {
   final Recipe recipe;
   final VoidCallback onBack;
-  final VoidCallback onYouTube;
+  final VoidCallback? onYouTube;
 
   const _RecipeHeaderBackground({
     required this.recipe,
     required this.onBack,
-    required this.onYouTube,
+    this.onYouTube,
   });
 
   @override
@@ -405,20 +426,29 @@ class _RecipeHeaderBackground extends StatelessWidget {
         fit: StackFit.expand,
         children: [
           // Thumbnail
-          CachedNetworkImage(
-            imageUrl: recipe.thumbnailUrl,
-            fit: BoxFit.cover,
-            placeholder: (_, _) =>
-                Container(color: AppColors.surfaceVariant),
-            errorWidget: (_, _, _) => Container(
-              color: AppColors.surfaceVariant,
-              child: const Icon(
-                Icons.image_not_supported_rounded,
-                color: AppColors.textTertiary,
-                size: 48,
-              ),
-            ),
-          ),
+          recipe.thumbnailUrl != null && recipe.thumbnailUrl!.isNotEmpty
+              ? CachedNetworkImage(
+                  imageUrl: recipe.thumbnailUrl!,
+                  fit: BoxFit.cover,
+                  placeholder: (_, _) =>
+                      Container(color: AppColors.surfaceVariant),
+                  errorWidget: (_, _, _) => Container(
+                    color: AppColors.surfaceVariant,
+                    child: const Icon(
+                      Icons.image_not_supported_rounded,
+                      color: AppColors.textTertiary,
+                      size: 48,
+                    ),
+                  ),
+                )
+              : Container(
+                  color: AppColors.surfaceVariant,
+                  child: const Icon(
+                    Icons.restaurant_rounded,
+                    color: AppColors.textTertiary,
+                    size: 48,
+                  ),
+                ),
 
           // Gradient overlay
           DecoratedBox(
@@ -472,15 +502,16 @@ class _RecipeHeaderBackground extends StatelessWidget {
             ),
           ),
 
-          // YouTube icon button (top-right)
-          Positioned(
-            top: topPad + 12,
-            right: 16,
-            child: _CircleIconButton(
-              icon: Icons.play_circle_outline_rounded,
-              onTap: onYouTube,
+          // YouTube icon button (top-right) — only shown for recipes with a video
+          if (onYouTube != null)
+            Positioned(
+              top: topPad + 12,
+              right: 16,
+              child: _CircleIconButton(
+                icon: Icons.play_circle_outline_rounded,
+                onTap: onYouTube!,
+              ),
             ),
-          ),
         ],
       );
   }

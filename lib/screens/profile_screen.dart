@@ -199,7 +199,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       child: Row(
                         children: [
                           GestureDetector(
-                            onTap: () => context.pop(),
+                            onTap: () => context.canPop() ? context.pop() : context.go('/home'),
                             child: const Icon(
                               Icons.arrow_back_ios,
                               size: 20,
@@ -524,31 +524,42 @@ class _RecipeCard extends StatelessWidget {
           children: [
             ClipRRect(
               borderRadius: BorderRadius.circular(AppRadius.input),
-              child: CachedNetworkImage(
-                imageUrl: recipe.thumbnailUrl,
-                width: 64,
-                height: 64,
-                fit: BoxFit.cover,
-                placeholder: (_, _) => Shimmer.fromColors(
-                  baseColor: AppColors.shimmer,
-                  highlightColor: AppColors.surface,
-                  child: Container(
-                    width: 64,
-                    height: 64,
-                    color: AppColors.shimmer,
-                  ),
-                ),
-                errorWidget: (_, _, _) => Container(
-                  width: 64,
-                  height: 64,
-                  color: AppColors.surfaceVariant,
-                  child: const Icon(
-                    Icons.restaurant_rounded,
-                    color: AppColors.textTertiary,
-                    size: 28,
-                  ),
-                ),
-              ),
+              child: recipe.thumbnailUrl != null && recipe.thumbnailUrl!.isNotEmpty
+                  ? CachedNetworkImage(
+                      imageUrl: recipe.thumbnailUrl!,
+                      width: 64,
+                      height: 64,
+                      fit: BoxFit.cover,
+                      placeholder: (_, _) => Shimmer.fromColors(
+                        baseColor: AppColors.shimmer,
+                        highlightColor: AppColors.surface,
+                        child: Container(
+                          width: 64,
+                          height: 64,
+                          color: AppColors.shimmer,
+                        ),
+                      ),
+                      errorWidget: (_, _, _) => Container(
+                        width: 64,
+                        height: 64,
+                        color: AppColors.surfaceVariant,
+                        child: const Icon(
+                          Icons.restaurant_rounded,
+                          color: AppColors.textTertiary,
+                          size: 28,
+                        ),
+                      ),
+                    )
+                  : Container(
+                      width: 64,
+                      height: 64,
+                      color: AppColors.surfaceVariant,
+                      child: const Icon(
+                        Icons.restaurant_rounded,
+                        color: AppColors.textTertiary,
+                        size: 28,
+                      ),
+                    ),
             ),
             const SizedBox(width: 12),
             Expanded(

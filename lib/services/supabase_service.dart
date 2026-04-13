@@ -76,12 +76,23 @@ class SupabaseService {
 
   Future<UserProfile> getProfile() async {
     final uid = _requireUid();
+    final email = _client.auth.currentUser?.email ?? '';
     try {
       final data = await _client
           .from('profiles')
           .select()
           .eq('id', uid)
-          .single();
+          .maybeSingle();
+      // New user — no profile row yet. Return a stub.
+      if (data == null) {
+        return UserProfile(
+          id: uid,
+          email: email,
+          name: '',
+          foodPreference: FoodPreference.everything,
+          createdAt: DateTime.now(),
+        );
+      }
       return UserProfile.fromJson(data);
     } on PostgrestException catch (e) {
       throw _mapPostgrestException(e);
@@ -135,7 +146,9 @@ class SupabaseService {
           .from('profiles')
           .select('name, food_preference')
           .eq('id', uid)
-          .single();
+          .maybeSingle();
+      // No profile row yet — new user, profile not complete.
+      if (data == null) return false;
       return data['name'] != null && data['food_preference'] != null;
     } on PostgrestException catch (e) {
       throw _mapPostgrestException(e);
@@ -286,6 +299,53 @@ class SupabaseService {
       throw AppException(
         'Could not link the recipe to your account.',
         code: 'recipe_link_failed',
+      );
+    }
+  }
+
+  Future<List<Recipe>> getPlatformRecipes({
+    int limit = 20,
+    int offset = 0,
+    String? category,
+  }) async {
+    try {
+      var query = _client
+          .from('recipes')
+          .select()
+          .eq('is_platform_recipe', true);
+      if (category != null) {
+        query = query.eq('category', category);
+      }
+      final rows = await query
+          .order('title', ascending: true)
+          .range(offset, offset + limit - 1);
+      return rows.map((row) => Recipe.fromJson(row)).toList();
+    } on PostgrestException catch (e) {
+      throw _mapPostgrestException(e);
+    } catch (e) {
+      throw const AppException(
+        'Could not load recipes. Please try again.',
+        code: 'platform_recipes_fetch_failed',
+      );
+    }
+  }
+
+  Future<List<Recipe>> searchPlatformRecipes(String query) async {
+    try {
+      final rows = await _client
+          .from('recipes')
+          .select()
+          .eq('is_platform_recipe', true)
+          .ilike('title', '%$query%')
+          .order('title', ascending: true)
+          .limit(20);
+      return rows.map((row) => Recipe.fromJson(row)).toList();
+    } on PostgrestException catch (e) {
+      throw _mapPostgrestException(e);
+    } catch (e) {
+      throw const AppException(
+        'Search failed. Please try again.',
+        code: 'platform_search_failed',
       );
     }
   }

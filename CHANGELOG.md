@@ -5,6 +5,28 @@ Format: `[YYYY-MM-DD] — commit hash — description`
 
 ---
 
+## 2026-04-13T12:00 — Platform recipe catalog: 100 seeded Indian recipes + Browse UI (v1.1.0+4)
+
+### Database
+- Migration `002_platform_recipes.sql`: made `created_by` and `video_url` nullable on `recipes`; added `category` and `region` columns; added RLS policy so all authenticated users can read platform recipes
+
+### Flutter app
+- Recipe model now supports nullable `videoUrl`, `thumbnailUrl`, `createdBy` and new `category`/`region` fields
+- Home screen: new "Browse Recipes" section below "My Recipes" with horizontal category filter chips (All, Dal & Curry, Rice & Biryani, Breakfast & Snacks, Bread & Roti, Sweets & Desserts, Street Food, Soups & Lentils, Drinks & Beverages) and paginated "Load more"
+- Search bar now queries both user recipes and the platform catalog in parallel
+- Recipe screen: YouTube link button hidden for recipes without a video; thumbnail fallback shows a food icon when no image
+- Profile + home recipe cards: graceful fallback when thumbnail URL is missing
+
+### Seeding infrastructure
+- New `scripts/` directory with `package.json`, `recipe_list.ts` (curated 500 Indian recipes across 8 categories and 6 regions), and `seed_recipes.ts`
+- Seed script uses Gemini 2.5 Flash Lite to generate complete structured recipes (ingredients with regional aliases, prep + cooking steps, timers, flame levels), batched in groups of 5 with 2s delay, resumable via `canonical_url` deduplication
+- Run with `npx tsx seed_recipes.ts --batch <1–5>` (100 recipes per batch)
+
+### Seeded content
+- Batch 1 complete: 100 platform recipes inserted (Dal & Curry + start of Rice & Biryani)
+
+---
+
 ## 2026-04-13T00:00 — UX tweaks: fact rotation interval, fact text size, timeout increase (v1.0.1+3)
 
 - Increased food fact rotation interval from 6s to 9s (50% longer) on recipe creation screen

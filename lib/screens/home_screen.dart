@@ -31,6 +31,14 @@ class _HomeScreenState extends State<HomeScreen>
   Recipe? _activeRecipe;
   bool _loading = true;
 
+  // Platform recipes (Browse Catalog)
+  List<Recipe> _platformRecipes = [];
+  bool _platformLoading = true;
+  String? _selectedCategory;
+  int _platformOffset = 0;
+  bool _platformHasMore = true;
+  static const _platformPageSize = 20;
+
   // URL input
   final _urlController = TextEditingController();
   String? _urlError;
@@ -38,6 +46,7 @@ class _HomeScreenState extends State<HomeScreen>
   // Search
   final _searchController = TextEditingController();
   List<Recipe>? _searchResults; // null = not in search mode
+  List<Recipe>? _platformSearchResults;
   Timer? _debounceTimer;
 
   // Active recipe bar slide-up
@@ -58,6 +67,7 @@ class _HomeScreenState extends State<HomeScreen>
         CurvedAnimation(parent: _barAnimController, curve: Curves.easeOut));
 
     _loadData();
+    _loadPlatformRecipes();
     _requestNotificationPermissionIfNeeded();
   }
 
@@ -95,6 +105,48 @@ class _HomeScreenState extends State<HomeScreen>
     } catch (_) {
       if (mounted) setState(() => _loading = false);
     }
+  }
+
+  // ── Platform recipes ─────────────────────────────────────
+
+  Future<void> _loadPlatformRecipes({bool reset = false}) async {
+    if (reset) {
+      setState(() {
+        _platformOffset = 0;
+        _platformHasMore = true;
+        _platformRecipes = [];
+        _platformLoading = true;
+      });
+    } else {
+      setState(() => _platformLoading = true);
+    }
+    try {
+      final results = await SupabaseService.instance.getPlatformRecipes(
+        limit: _platformPageSize,
+        offset: _platformOffset,
+        category: _selectedCategory,
+      );
+      if (!mounted) return;
+      setState(() {
+        _platformRecipes = reset ? results : [..._platformRecipes, ...results];
+        _platformOffset += results.length;
+        _platformHasMore = results.length == _platformPageSize;
+        _platformLoading = false;
+      });
+    } catch (_) {
+      if (mounted) setState(() => _platformLoading = false);
+    }
+  }
+
+  void _onCategorySelected(String? category) {
+    if (_selectedCategory == category) return;
+    setState(() => _selectedCategory = category);
+    _loadPlatformRecipes(reset: true);
+  }
+
+  Future<void> _loadMorePlatformRecipes() async {
+    if (!_platformHasMore || _platformLoading) return;
+    await _loadPlatformRecipes();
   }
 
   // ── Notification permission ───────────────────────────────
@@ -155,14 +207,24 @@ class _HomeScreenState extends State<HomeScreen>
   void _onSearchChanged(String query) {
     _debounceTimer?.cancel();
     if (query.isEmpty) {
-      setState(() => _searchResults = null);
+      setState(() {
+        _searchResults = null;
+        _platformSearchResults = null;
+      });
       return;
     }
     _debounceTimer = Timer(const Duration(milliseconds: 300), () async {
       try {
-        final results =
-            await SupabaseService.instance.searchUserRecipes(query);
-        if (mounted) setState(() => _searchResults = results);
+        final results = await Future.wait([
+          SupabaseService.instance.searchUserRecipes(query),
+          SupabaseService.instance.searchPlatformRecipes(query),
+        ]);
+        if (mounted) {
+          setState(() {
+            _searchResults = results[0];
+            _platformSearchResults = results[1];
+          });
+        }
       } catch (_) {}
     });
   }
@@ -217,6 +279,19 @@ class _HomeScreenState extends State<HomeScreen>
                     searchController: _searchController,
                     onSearchChanged: _onSearchChanged,
                     onViewAll: () => context.go('/profile'),
+                    onRecipeTap: (r) => context.go('/recipe/${r.id}'),
+                  ),
+                  const SizedBox(height: AppSpacing.xl),
+                  _BrowseRecipesSection(
+                    recipes: _searchController.text.isNotEmpty
+                        ? (_platformSearchResults ?? const [])
+                        : _platformRecipes,
+                    isLoading: _platformLoading && _platformRecipes.isEmpty,
+                    isSearching: _searchController.text.isNotEmpty,
+                    selectedCategory: _selectedCategory,
+                    hasMore: _platformHasMore && _searchController.text.isEmpty,
+                    onCategorySelected: _onCategorySelected,
+                    onLoadMore: _loadMorePlatformRecipes,
                     onRecipeTap: (r) => context.go('/recipe/${r.id}'),
                   ),
                 ],
@@ -644,31 +719,42 @@ class _RecipeCard extends StatelessWidget {
             // Thumbnail
             ClipRRect(
               borderRadius: BorderRadius.circular(AppRadius.input),
-              child: CachedNetworkImage(
-                imageUrl: recipe.thumbnailUrl,
-                width: 64,
-                height: 64,
-                fit: BoxFit.cover,
-                placeholder: (_, _) => Shimmer.fromColors(
-                  baseColor: AppColors.shimmer,
-                  highlightColor: AppColors.surface,
-                  child: Container(
-                    width: 64,
-                    height: 64,
-                    color: AppColors.shimmer,
-                  ),
-                ),
-                errorWidget: (_, _, _) => Container(
-                  width: 64,
-                  height: 64,
-                  color: AppColors.surfaceVariant,
-                  child: const Icon(
-                    Icons.restaurant_rounded,
-                    color: AppColors.textTertiary,
-                    size: 28,
-                  ),
-                ),
-              ),
+              child: recipe.thumbnailUrl != null && recipe.thumbnailUrl!.isNotEmpty
+                  ? CachedNetworkImage(
+                      imageUrl: recipe.thumbnailUrl!,
+                      width: 64,
+                      height: 64,
+                      fit: BoxFit.cover,
+                      placeholder: (_, _) => Shimmer.fromColors(
+                        baseColor: AppColors.shimmer,
+                        highlightColor: AppColors.surface,
+                        child: Container(
+                          width: 64,
+                          height: 64,
+                          color: AppColors.shimmer,
+                        ),
+                      ),
+                      errorWidget: (_, _, _) => Container(
+                        width: 64,
+                        height: 64,
+                        color: AppColors.surfaceVariant,
+                        child: const Icon(
+                          Icons.restaurant_rounded,
+                          color: AppColors.textTertiary,
+                          size: 28,
+                        ),
+                      ),
+                    )
+                  : Container(
+                      width: 64,
+                      height: 64,
+                      color: AppColors.surfaceVariant,
+                      child: const Icon(
+                        Icons.restaurant_rounded,
+                        color: AppColors.textTertiary,
+                        size: 28,
+                      ),
+                    ),
             ),
             const SizedBox(width: 12),
 
@@ -712,6 +798,182 @@ class _RecipeCard extends StatelessWidget {
               ),
             ),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────
+// Browse Recipes section (platform recipes catalog)
+// ─────────────────────────────────────────────────────────────
+
+const _kCategories = [
+  'Dal & Curry',
+  'Rice & Biryani',
+  'Breakfast & Snacks',
+  'Bread & Roti',
+  'Sweets & Desserts',
+  'Street Food',
+  'Soups & Lentils',
+  'Drinks & Beverages',
+];
+
+class _BrowseRecipesSection extends StatelessWidget {
+  final List<Recipe> recipes;
+  final bool isLoading;
+  final bool isSearching;
+  final String? selectedCategory;
+  final bool hasMore;
+  final ValueChanged<String?> onCategorySelected;
+  final VoidCallback onLoadMore;
+  final ValueChanged<Recipe> onRecipeTap;
+
+  const _BrowseRecipesSection({
+    required this.recipes,
+    required this.isLoading,
+    required this.isSearching,
+    required this.selectedCategory,
+    required this.hasMore,
+    required this.onCategorySelected,
+    required this.onLoadMore,
+    required this.onRecipeTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text('Browse Recipes', style: AppTextStyles.titleLarge),
+        const SizedBox(height: AppSpacing.md),
+
+        // Category filter chips (hidden during search)
+        if (!isSearching) ...[
+          SizedBox(
+            height: 36,
+            child: ListView(
+              scrollDirection: Axis.horizontal,
+              children: [
+                _CategoryChip(
+                  label: 'All',
+                  selected: selectedCategory == null,
+                  onTap: () => onCategorySelected(null),
+                ),
+                for (final cat in _kCategories) ...[
+                  const SizedBox(width: 8),
+                  _CategoryChip(
+                    label: cat,
+                    selected: selectedCategory == cat,
+                    onTap: () => onCategorySelected(cat),
+                  ),
+                ],
+              ],
+            ),
+          ),
+          const SizedBox(height: AppSpacing.md),
+        ],
+
+        // Content
+        if (isLoading)
+          Column(
+            children: List.generate(
+              3,
+              (i) => Padding(
+                padding: const EdgeInsets.only(bottom: AppSpacing.md),
+                child: AnimatedEntry(index: i, child: const RecipeCardShimmer()),
+              ),
+            ),
+          )
+        else if (recipes.isEmpty && isSearching)
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: AppSpacing.xl),
+            child: Center(
+              child: Text(
+                'No recipes found in catalog',
+                style: AppTextStyles.bodyMedium
+                    .copyWith(color: AppColors.textSecondary),
+              ),
+            ),
+          )
+        else if (recipes.isEmpty)
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: AppSpacing.xl),
+            child: Center(
+              child: Text(
+                'No recipes available yet',
+                style: AppTextStyles.bodyMedium
+                    .copyWith(color: AppColors.textSecondary),
+              ),
+            ),
+          )
+        else ...[
+          for (int i = 0; i < recipes.length; i++) ...[
+            if (i > 0) const SizedBox(height: AppSpacing.md),
+            AnimatedEntry(
+              index: i,
+              child: _RecipeCard(
+                recipe: recipes[i],
+                onTap: () => onRecipeTap(recipes[i]),
+              ),
+            ),
+          ],
+          if (hasMore) ...[
+            const SizedBox(height: AppSpacing.md),
+            Center(
+              child: GestureDetector(
+                onTap: onLoadMore,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: AppSpacing.xl,
+                    vertical: AppSpacing.sm,
+                  ),
+                  decoration: BoxDecoration(
+                    color: AppColors.surfaceVariant,
+                    borderRadius: BorderRadius.circular(AppRadius.input),
+                  ),
+                  child: Text(
+                    'Load more',
+                    style: AppTextStyles.bodyMedium
+                        .copyWith(color: AppColors.primary),
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ],
+      ],
+    );
+  }
+}
+
+class _CategoryChip extends StatelessWidget {
+  final String label;
+  final bool selected;
+  final VoidCallback onTap;
+
+  const _CategoryChip({
+    required this.label,
+    required this.selected,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+        decoration: BoxDecoration(
+          color: selected ? AppColors.primary : AppColors.surfaceVariant,
+          borderRadius: BorderRadius.circular(20),
+        ),
+        child: Text(
+          label,
+          style: AppTextStyles.bodySmall.copyWith(
+            color: selected ? AppColors.surface : AppColors.textSecondary,
+            fontWeight: selected ? FontWeight.w600 : FontWeight.w400,
+          ),
         ),
       ),
     );

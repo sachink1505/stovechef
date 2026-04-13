@@ -1,0 +1,18 @@
+{
+  "name": "stovechef-scripts",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "seed": "npx tsx seed_recipes.ts"
+  },
+  "dependencies": {
+    "@google/generative-ai": "^0.24.0",
+    "@supabase/supabase-js": "^2.49.4",
+    "dotenv": "^16.4.7"
+  },
+  "devDependencies": {
+    "tsx": "^4.19.3",
+    "@types/node": "^22.0.0",
+    "typescript": "^5.7.3"
+  }
+}
