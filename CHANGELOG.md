@@ -5,6 +5,45 @@ Format: `[YYYY-MM-DD] — commit hash — description`
 
 ---
 
+## 2026-04-16T21:30 — Browse tab, UI fixes, recipe images (v1.3.0+8)
+
+### New: Browse Recipes tab with bottom navigation
+- Added bottom navigation bar with Home and Browse tabs
+- New dedicated Browse Recipes screen with search bar, category chips, and paginated recipe list
+- Home page remains unchanged — Browse section still embedded there too
+- Router restructured with `StatefulShellRoute.indexedStack` for tab persistence
+
+### Android back button fix
+- Back button from Browse tab → switches to Home tab
+- Back button from Home tab → exits the app
+- Implemented via `PopScope` in the shell scaffold
+
+### UI text: YouTube → YouTube Shorts
+- All user-facing text now references "YouTube Shorts" instead of "YouTube video"
+- URL validation unchanged — still accepts regular YouTube URLs, Shorts, and youtu.be links
+
+### Get Started button (welcome screen)
+- Button now spans full width with reduced margins (`AppSpacing.lg` / 16px)
+- Positioned closer to bottom edge for easier thumb reach
+
+### Recipe card overflow fix
+- Removed fixed `height: 88` on recipe cards — now uses `ConstrainedBox(minHeight: 88)`
+- Long recipe titles no longer clip outside the card boundary
+
+### Load More button fix
+- Shows a loading spinner while fetching more recipes (prevents double-taps)
+- Button correctly hidden when no more recipes exist in a category
+
+### Recipe images generated
+- Generated images for 490/491 platform recipes using OpenAI `gpt-image-1`
+- Images converted to WebP, uploaded to Supabase Storage, and linked in database
+
+### Code cleanup
+- Extracted shared widgets: `RecipeCard`, `CategoryChip`, `kRecipeCategories`
+- Removed duplicate `_RecipeCard` from `home_screen.dart` and `profile_screen.dart`
+
+---
+
 ## 2026-04-16T12:00 — Switchable LLM provider: Gemini or OpenAI (v1.2.0+7)
 
 - Recipe generation can now use either **Google Gemini** (default) or **OpenAI**, controlled by the `LLM_PROVIDER` env variable

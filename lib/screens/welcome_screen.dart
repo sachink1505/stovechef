@@ -87,7 +87,7 @@ class _WelcomeScreenState extends State<WelcomeScreen>
                     ),
                     const SizedBox(height: AppSpacing.sm),
                     Text(
-                      'Turn any YouTube recipe into\nstep-by-step cooking guidance',
+                      'Turn any YouTube Shorts recipe into\nstep-by-step cooking guidance',
                       style: AppTextStyles.bodyLarge.copyWith(
                         color: AppColors.textSecondary,
                         height: 1.5,
@@ -102,9 +102,9 @@ class _WelcomeScreenState extends State<WelcomeScreen>
 
               // ── Bottom-fixed CTA ────────────────────────────────
               Positioned(
-                left: AppSpacing.xl,
-                right: AppSpacing.xl,
-                bottom: AppSpacing.xxl,
+                left: AppSpacing.lg,
+                right: AppSpacing.lg,
+                bottom: AppSpacing.lg,
                 child: FadeTransition(
                   opacity: _fadeAnim,
                   child: SlideTransition(
@@ -287,7 +287,7 @@ class _FeatureBullets extends StatelessWidget {
   const _FeatureBullets();
 
   static const _bullets = [
-    (emoji: '🎬', text: 'Paste a YouTube link'),
+    (emoji: '🎬', text: 'Paste a YouTube Shorts link'),
     (emoji: '🍳', text: 'Get a guided recipe'),
     (emoji: '⏱️', text: 'Cook with timers & steps'),
   ];

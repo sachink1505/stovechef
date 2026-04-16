@@ -6,9 +6,11 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'config/theme.dart';
 import 'screens/auth_screen.dart';
+import 'screens/browse_recipes_screen.dart';
 import 'screens/cooking_mode_screen.dart';
 import 'screens/create_recipe_screen.dart';
 import 'screens/home_screen.dart';
+import 'screens/main_shell.dart';
 import 'screens/personal_details_screen.dart';
 import 'screens/profile_screen.dart';
 import 'screens/recipe_screen.dart';
@@ -113,11 +115,33 @@ final _router = GoRouter(
       pageBuilder: (context, state) =>
           _slidePage(state, const PersonalDetailsScreen()),
     ),
-    GoRoute(
-      path: '/home',
-      pageBuilder: (context, state) =>
-          _slidePage(state, const HomeScreen()),
+
+    // Shell with bottom navigation (Home + Browse tabs)
+    StatefulShellRoute.indexedStack(
+      builder: (context, state, navigationShell) =>
+          MainShell(navigationShell: navigationShell),
+      branches: [
+        StatefulShellBranch(
+          routes: [
+            GoRoute(
+              path: '/home',
+              pageBuilder: (context, state) =>
+                  _noTransitionPage(state, const HomeScreen()),
+            ),
+          ],
+        ),
+        StatefulShellBranch(
+          routes: [
+            GoRoute(
+              path: '/browse',
+              pageBuilder: (context, state) =>
+                  _noTransitionPage(state, const BrowseRecipesScreen()),
+            ),
+          ],
+        ),
+      ],
     ),
+
     GoRoute(
       path: '/profile',
       pageBuilder: (context, state) =>
@@ -156,6 +180,15 @@ final _router = GoRouter(
 // ──────────────────────────────────────────────────────────────
 // Page transition helpers
 // ──────────────────────────────────────────────────────────────
+
+/// No transition — used for tabs inside the shell.
+CustomTransitionPage<void> _noTransitionPage(GoRouterState state, Widget child) {
+  return CustomTransitionPage<void>(
+    key: state.pageKey,
+    child: child,
+    transitionsBuilder: (_, _, _, child) => child,
+  );
+}
 
 /// Default: slide in from the right.
 CustomTransitionPage<void> _slidePage(GoRouterState state, Widget child) {

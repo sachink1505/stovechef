@@ -3,16 +3,20 @@
   "version": "1.0.0",
   "private": true,
   "scripts": {
-    "seed": "npx tsx seed_recipes.ts"
+    "seed": "npx tsx seed_recipes.ts",
+    "generate-images": "npx tsx generate_recipe_images.ts"
   },
   "dependencies": {
     "@google/generative-ai": "^0.24.0",
     "@supabase/supabase-js": "^2.49.4",
-    "dotenv": "^16.4.7"
+    "dotenv": "^16.4.7",
+    "openai": "^4.104.0",
+    "p-limit": "^6.2.0",
+    "sharp": "^0.33.5"
   },
   "devDependencies": {
-    "tsx": "^4.19.3",
     "@types/node": "^22.0.0",
+    "tsx": "^4.19.3",
     "typescript": "^5.7.3"
   }
 }

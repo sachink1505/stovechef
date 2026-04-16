@@ -1,7 +1,6 @@
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
-import 'package:shimmer/shimmer.dart';
 
 import '../config/theme.dart';
 import '../models/recipe.dart';
@@ -9,6 +8,7 @@ import '../models/user_profile.dart';
 import '../services/cache_service.dart';
 import '../services/supabase_service.dart';
 import '../widgets/app_button.dart';
+import '../widgets/recipe_card.dart';
 
 class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key});
@@ -473,7 +473,7 @@ class _MyCreationsSection extends StatelessWidget {
               children: [
                 for (int i = 0; i < recipes.length; i++) ...[
                   if (i > 0) const SizedBox(height: AppSpacing.md),
-                  _RecipeCard(
+                  RecipeCard(
                     recipe: recipes[i],
                     onTap: () => onRecipeTap(recipes[i]),
                   ),
@@ -497,113 +497,6 @@ class _MyCreationsSection extends StatelessWidget {
               ],
             ),
         ],
-      ),
-    );
-  }
-}
-
-class _RecipeCard extends StatelessWidget {
-  final Recipe recipe;
-  final VoidCallback onTap;
-
-  const _RecipeCard({required this.recipe, required this.onTap});
-
-  @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        height: 88,
-        padding: const EdgeInsets.all(12),
-        decoration: BoxDecoration(
-          color: AppColors.surface,
-          borderRadius: BorderRadius.circular(AppRadius.card),
-          boxShadow: AppShadows.card,
-        ),
-        child: Row(
-          children: [
-            ClipRRect(
-              borderRadius: BorderRadius.circular(AppRadius.input),
-              child: recipe.thumbnailUrl != null && recipe.thumbnailUrl!.isNotEmpty
-                  ? CachedNetworkImage(
-                      imageUrl: recipe.thumbnailUrl!,
-                      width: 64,
-                      height: 64,
-                      fit: BoxFit.cover,
-                      placeholder: (_, _) => Shimmer.fromColors(
-                        baseColor: AppColors.shimmer,
-                        highlightColor: AppColors.surface,
-                        child: Container(
-                          width: 64,
-                          height: 64,
-                          color: AppColors.shimmer,
-                        ),
-                      ),
-                      errorWidget: (_, _, _) => Container(
-                        width: 64,
-                        height: 64,
-                        color: AppColors.surfaceVariant,
-                        child: const Icon(
-                          Icons.restaurant_rounded,
-                          color: AppColors.textTertiary,
-                          size: 28,
-                        ),
-                      ),
-                    )
-                  : Container(
-                      width: 64,
-                      height: 64,
-                      color: AppColors.surfaceVariant,
-                      child: const Icon(
-                        Icons.restaurant_rounded,
-                        color: AppColors.textTertiary,
-                        size: 28,
-                      ),
-                    ),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Text(
-                    recipe.title,
-                    style: AppTextStyles.titleMedium,
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    'by ${recipe.creatorName}',
-                    style: AppTextStyles.bodySmall.copyWith(
-                      color: AppColors.textSecondary,
-                    ),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                  const SizedBox(height: 4),
-                  Row(
-                    children: [
-                      const Icon(
-                        Icons.timer_outlined,
-                        size: 14,
-                        color: AppColors.textTertiary,
-                      ),
-                      const SizedBox(width: 3),
-                      Text(
-                        '${recipe.cookingTimeMinutes} min',
-                        style: AppTextStyles.bodySmall.copyWith(
-                          color: AppColors.textTertiary,
-                        ),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ),
       ),
     );
   }

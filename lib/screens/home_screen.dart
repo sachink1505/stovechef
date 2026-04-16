@@ -1,18 +1,19 @@
 import 'dart:async';
 
-import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:go_router/go_router.dart';
 import 'package:hive_flutter/hive_flutter.dart';
-import 'package:shimmer/shimmer.dart';
 
 import '../config/theme.dart';
+import '../data/categories.dart';
 import '../models/recipe.dart';
 import '../models/user_profile.dart';
 import '../services/supabase_service.dart';
 import '../widgets/animated_entry.dart';
+import '../widgets/category_chip.dart';
 import '../widgets/empty_state.dart';
+import '../widgets/recipe_card.dart';
 import '../widgets/recipe_card_shimmer.dart';
 
 class HomeScreen extends StatefulWidget {
@@ -195,7 +196,7 @@ class _HomeScreenState extends State<HomeScreen>
     final url = _urlController.text.trim();
     if (!_isValidYouTubeUrl(url)) {
       setState(
-          () => _urlError = 'Please paste a valid YouTube video link');
+          () => _urlError = 'Please paste a valid YouTube Shorts video link');
       return;
     }
     setState(() => _urlError = null);
@@ -287,6 +288,7 @@ class _HomeScreenState extends State<HomeScreen>
                         ? (_platformSearchResults ?? const [])
                         : _platformRecipes,
                     isLoading: _platformLoading && _platformRecipes.isEmpty,
+                    isLoadingMore: _platformLoading && _platformRecipes.isNotEmpty,
                     isSearching: _searchController.text.isNotEmpty,
                     selectedCategory: _selectedCategory,
                     hasMore: _platformHasMore && _searchController.text.isEmpty,
@@ -455,7 +457,7 @@ class _UrlInputField extends StatelessWidget {
         textInputAction: TextInputAction.go,
         style: AppTextStyles.bodyMedium.copyWith(color: AppColors.text),
         decoration: InputDecoration(
-          hintText: 'Paste YouTube video link',
+          hintText: 'Paste YouTube Shorts video link',
           hintStyle:
               AppTextStyles.bodyMedium.copyWith(color: AppColors.textTertiary),
           prefixIcon: const Icon(
@@ -581,7 +583,7 @@ class _MyRecipesSection extends StatelessWidget {
           const EmptyState(
             title: 'No recipes yet',
             subtitle:
-                'Paste a YouTube cooking video link above to create your first guided recipe',
+                'Paste a YouTube Shorts cooking video link above to create your first guided recipe',
           )
         else if (recipes.isEmpty)
           _buildNoResults()
@@ -613,7 +615,7 @@ class _MyRecipesSection extends StatelessWidget {
                 size: 36, color: AppColors.textTertiary),
             const SizedBox(height: AppSpacing.sm),
             Text(
-              'No recipe found. Search on YouTube\nand paste a link to create one!',
+              'No recipe found. Search on YouTube Shorts\nand paste a link to create one!',
               textAlign: TextAlign.center,
               style: AppTextStyles.bodyMedium
                   .copyWith(color: AppColors.textSecondary),
@@ -631,7 +633,7 @@ class _MyRecipesSection extends StatelessWidget {
           if (i > 0) const SizedBox(height: AppSpacing.md),
           AnimatedEntry(
             index: i,
-            child: _RecipeCard(
+            child: RecipeCard(
               recipe: recipes[i],
               onTap: () => onRecipeTap(recipes[i]),
             ),
@@ -693,135 +695,15 @@ class _SearchBar extends StatelessWidget {
 }
 
 // ─────────────────────────────────────────────────────────────
-// Recipe card
-// ─────────────────────────────────────────────────────────────
-
-class _RecipeCard extends StatelessWidget {
-  final Recipe recipe;
-  final VoidCallback onTap;
-
-  const _RecipeCard({required this.recipe, required this.onTap});
-
-  @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        height: 88,
-        padding: const EdgeInsets.all(12),
-        decoration: BoxDecoration(
-          color: AppColors.surface,
-          borderRadius: BorderRadius.circular(AppRadius.card),
-          boxShadow: AppShadows.card,
-        ),
-        child: Row(
-          children: [
-            // Thumbnail
-            ClipRRect(
-              borderRadius: BorderRadius.circular(AppRadius.input),
-              child: recipe.thumbnailUrl != null && recipe.thumbnailUrl!.isNotEmpty
-                  ? CachedNetworkImage(
-                      imageUrl: recipe.thumbnailUrl!,
-                      width: 64,
-                      height: 64,
-                      fit: BoxFit.cover,
-                      placeholder: (_, _) => Shimmer.fromColors(
-                        baseColor: AppColors.shimmer,
-                        highlightColor: AppColors.surface,
-                        child: Container(
-                          width: 64,
-                          height: 64,
-                          color: AppColors.shimmer,
-                        ),
-                      ),
-                      errorWidget: (_, _, _) => Container(
-                        width: 64,
-                        height: 64,
-                        color: AppColors.surfaceVariant,
-                        child: const Icon(
-                          Icons.restaurant_rounded,
-                          color: AppColors.textTertiary,
-                          size: 28,
-                        ),
-                      ),
-                    )
-                  : Container(
-                      width: 64,
-                      height: 64,
-                      color: AppColors.surfaceVariant,
-                      child: const Icon(
-                        Icons.restaurant_rounded,
-                        color: AppColors.textTertiary,
-                        size: 28,
-                      ),
-                    ),
-            ),
-            const SizedBox(width: 12),
-
-            // Info
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Text(
-                    recipe.title,
-                    style: AppTextStyles.titleMedium,
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    'by ${recipe.creatorName}',
-                    style: AppTextStyles.bodySmall
-                        .copyWith(color: AppColors.textSecondary),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                  const SizedBox(height: 4),
-                  Row(
-                    children: [
-                      const Icon(
-                        Icons.timer_outlined,
-                        size: 14,
-                        color: AppColors.textTertiary,
-                      ),
-                      const SizedBox(width: 3),
-                      Text(
-                        '${recipe.cookingTimeMinutes} min',
-                        style: AppTextStyles.bodySmall
-                            .copyWith(color: AppColors.textTertiary),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-// ─────────────────────────────────────────────────────────────
 // Browse Recipes section (platform recipes catalog)
 // ─────────────────────────────────────────────────────────────
 
-const _kCategories = [
-  'Dal & Curry',
-  'Rice & Biryani',
-  'Breakfast & Snacks',
-  'Bread & Roti',
-  'Sweets & Desserts',
-  'Street Food',
-  'Soups & Lentils',
-  'Drinks & Beverages',
-];
+// Categories imported from ../data/categories.dart
 
 class _BrowseRecipesSection extends StatelessWidget {
   final List<Recipe> recipes;
   final bool isLoading;
+  final bool isLoadingMore;
   final bool isSearching;
   final String? selectedCategory;
   final bool hasMore;
@@ -832,6 +714,7 @@ class _BrowseRecipesSection extends StatelessWidget {
   const _BrowseRecipesSection({
     required this.recipes,
     required this.isLoading,
+    required this.isLoadingMore,
     required this.isSearching,
     required this.selectedCategory,
     required this.hasMore,
@@ -855,14 +738,14 @@ class _BrowseRecipesSection extends StatelessWidget {
             child: ListView(
               scrollDirection: Axis.horizontal,
               children: [
-                _CategoryChip(
+                CategoryChip(
                   label: 'All',
                   selected: selectedCategory == null,
                   onTap: () => onCategorySelected(null),
                 ),
-                for (final cat in _kCategories) ...[
+                for (final cat in kRecipeCategories) ...[
                   const SizedBox(width: 8),
-                  _CategoryChip(
+                  CategoryChip(
                     label: cat,
                     selected: selectedCategory == cat,
                     onTap: () => onCategorySelected(cat),
@@ -912,7 +795,7 @@ class _BrowseRecipesSection extends StatelessWidget {
             if (i > 0) const SizedBox(height: AppSpacing.md),
             AnimatedEntry(
               index: i,
-              child: _RecipeCard(
+              child: RecipeCard(
                 recipe: recipes[i],
                 onTap: () => onRecipeTap(recipes[i]),
               ),
@@ -922,7 +805,7 @@ class _BrowseRecipesSection extends StatelessWidget {
             const SizedBox(height: AppSpacing.md),
             Center(
               child: GestureDetector(
-                onTap: onLoadMore,
+                onTap: isLoadingMore ? null : onLoadMore,
                 child: Container(
                   padding: const EdgeInsets.symmetric(
                     horizontal: AppSpacing.xl,
@@ -932,50 +815,23 @@ class _BrowseRecipesSection extends StatelessWidget {
                     color: AppColors.surfaceVariant,
                     borderRadius: BorderRadius.circular(AppRadius.input),
                   ),
-                  child: Text(
-                    'Load more',
-                    style: AppTextStyles.bodyMedium
-                        .copyWith(color: AppColors.primary),
-                  ),
+                  child: isLoadingMore
+                      ? const SizedBox(
+                          width: 20,
+                          height: 20,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : Text(
+                          'Load more',
+                          style: AppTextStyles.bodyMedium
+                              .copyWith(color: AppColors.primary),
+                        ),
                 ),
               ),
             ),
           ],
         ],
       ],
-    );
-  }
-}
-
-class _CategoryChip extends StatelessWidget {
-  final String label;
-  final bool selected;
-  final VoidCallback onTap;
-
-  const _CategoryChip({
-    required this.label,
-    required this.selected,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
-        decoration: BoxDecoration(
-          color: selected ? AppColors.primary : AppColors.surfaceVariant,
-          borderRadius: BorderRadius.circular(20),
-        ),
-        child: Text(
-          label,
-          style: AppTextStyles.bodySmall.copyWith(
-            color: selected ? AppColors.surface : AppColors.textSecondary,
-            fontWeight: selected ? FontWeight.w600 : FontWeight.w400,
-          ),
-        ),
-      ),
     );
   }
 }
