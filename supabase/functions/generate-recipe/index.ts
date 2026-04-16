@@ -252,7 +252,7 @@ Return ONLY valid JSON (no markdown, no backticks) with this exact structure:
   "ingredients": [
     {
       "name": "Onion",
-      "quantity": "2 large or 200 grams",
+      "quantity": "2 large (approx. 200g)",
       "prep_method": "finely chopped",
       "aliases": {"hindi": "pyaaz", "tamil": "vengayam", "telugu": "ullipaya", "kannada": "eerulli"}
     }
@@ -270,33 +270,45 @@ Return ONLY valid JSON (no markdown, no backticks) with this exact structure:
       "flame_level": null,
       "is_prep": true,
       "ingredients": [
-        {"name": "Onion", "quantity": "2 large", "prep_method": "finely chopped"}
+        {"name": "Onion", "quantity": "2 large (approx. 200g)", "prep_method": "finely chopped"}
       ]
     },
     {
       "step_number": 2,
+      "title": "Add oil to pan",
+      "description": "Add 2 tablespoons of oil to a heavy-bottomed pan.",
+      "timer_seconds": null,
+      "flame_level": null,
+      "is_prep": true,
+      "ingredients": [
+        {"name": "Oil", "quantity": "2 tablespoons (30ml)", "prep_method": null}
+      ]
+    },
+    {
+      "step_number": 3,
       "title": "Heat oil",
-      "description": "Add 2 tablespoons of oil to a heavy-bottomed pan and heat on medium flame for 30 seconds.",
+      "description": "Heat the oil on medium flame for 30 seconds until it shimmers.",
       "timer_seconds": 30,
       "flame_level": "medium",
       "is_prep": false,
-      "ingredients": [
-        {"name": "Oil", "quantity": "2 tablespoons", "prep_method": null}
-      ]
+      "ingredients": []
     }
   ]
 }
 
 Rules:
 - portion_size: extract from video, default to 2 if not mentioned.
-- timer_seconds: ONLY for steps involving heat/gas stove. null for prep steps. Infer timing from context if not explicitly stated.
-- flame_level: ONLY "low", "medium", or "high". null for prep steps.
-- is_prep: true for steps with no cooking (chopping, mixing dry ingredients, soaking). false for anything on the stove.
+- STEP SPLITTING: Every cooking action MUST be split into TWO separate steps:
+  1. An "add/pour/put" step (is_prep: true, no timer, no flame) where ingredients are added to the pan/pot/kadai.
+  2. A "cook/heat/fry/boil" step (is_prep: false, with timer_seconds and flame_level) where the actual cooking happens.
+- timer_seconds: ONLY for cooking steps involving heat/gas stove. null for prep/add steps.
+- flame_level: ONLY "low", "medium", or "high". null for prep/add steps.
+- is_prep: true for steps with no cooking (chopping, mixing, adding ingredients to pan). false ONLY for steps where heat/cooking is happening.
+- ALTERNATIVE MEASUREMENTS: For every quantity, provide an alternative metric measurement in parentheses where conversion is practical. Examples: "2 tablespoons (30ml)", "1 cup (240ml)", "2 large (approx. 200g)". Skip only when impractical (e.g., "2 basil leaves").
 - ingredients: include regional aliases in Hindi, Tamil, Telugu, and Kannada.
 - preparations: list things to do before cooking starts (soaking, marinating, etc.). Empty array if none.
 - Be precise with quantities. If the video says "some oil", estimate a reasonable amount.
-- Order steps exactly as shown in the video.
-- Separate prep and cooking into distinct steps.`
+- Order steps exactly as shown in the video.`
 }
 
 async function callGemini(prompt: string, apiKey: string, model: string): Promise<string> {
@@ -344,6 +356,52 @@ async function callGemini(prompt: string, apiKey: string, model: string): Promis
   return parts[0].text as string
 }
 
+// ─── OpenAI ─────────────────────────────────────────────────
+
+async function callOpenAI(prompt: string, apiKey: string, model: string): Promise<string> {
+  const endpoint = 'https://api.openai.com/v1/chat/completions'
+
+  const res = await fetch(endpoint, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${apiKey}`,
+    },
+    body: JSON.stringify({
+      model,
+      messages: [{ role: 'user', content: prompt }],
+      temperature: 0.1,
+      max_tokens: 8192,
+      response_format: { type: 'json_object' },
+    }),
+    signal: AbortSignal.timeout(60_000),
+  })
+
+  if (res.status === 429) {
+    throw { status: 429, code: 'rate_limited', message: 'Recipe service is busy. Please try again shortly.' }
+  }
+  if (res.status >= 500) {
+    throw { status: 502, code: 'openai_error', message: 'Recipe generation failed. Try again.' }
+  }
+  if (!res.ok) {
+    const body = await res.text()
+    throw { status: 502, code: 'openai_error', message: `OpenAI returned ${res.status}: ${body.slice(0, 200)}` }
+  }
+
+  const data = await res.json()
+  const choices = data.choices ?? []
+  if (choices.length === 0) {
+    throw { status: 502, code: 'openai_empty', message: 'OpenAI returned no response.' }
+  }
+
+  const content = choices[0]?.message?.content
+  if (!content) {
+    throw { status: 502, code: 'openai_empty', message: 'OpenAI returned empty content.' }
+  }
+
+  return content as string
+}
+
 function extractRecipeJson(responseText: string): Record<string, unknown> {
   let text = responseText.trim()
 
@@ -379,15 +437,17 @@ Return ONLY valid JSON (no markdown, no backticks) with this exact structure:
   "cooking_time_minutes": 30,
   "portion_size": 2,
   "ingredients": [
-    { "name": "Onion", "quantity": "2 large or 200 grams", "prep_method": "finely chopped", "aliases": {"hindi": "pyaaz", "tamil": "vengayam", "telugu": "ullipaya", "kannada": "eerulli"} }
+    { "name": "Onion", "quantity": "2 large (approx. 200g)", "prep_method": "finely chopped", "aliases": {"hindi": "pyaaz", "tamil": "vengayam", "telugu": "ullipaya", "kannada": "eerulli"} }
   ],
   "preparations": ["Soak rajma overnight in water"],
   "steps": [
-    { "step_number": 1, "title": "Chop vegetables", "description": "Finely chop 2 onions.", "timer_seconds": null, "flame_level": null, "is_prep": true, "ingredients": [{"name": "Onion", "quantity": "2 large", "prep_method": "finely chopped"}] }
+    { "step_number": 1, "title": "Chop vegetables", "description": "Finely chop 2 onions.", "timer_seconds": null, "flame_level": null, "is_prep": true, "ingredients": [{"name": "Onion", "quantity": "2 large (approx. 200g)", "prep_method": "finely chopped"}] },
+    { "step_number": 2, "title": "Add oil to pan", "description": "Add oil to the pan.", "timer_seconds": null, "flame_level": null, "is_prep": true, "ingredients": [{"name": "Oil", "quantity": "2 tablespoons (30ml)", "prep_method": null}] },
+    { "step_number": 3, "title": "Heat oil", "description": "Heat on medium flame for 30 seconds.", "timer_seconds": 30, "flame_level": "medium", "is_prep": false, "ingredients": [] }
   ]
 }
 
-Rules: timer_seconds ONLY for stove steps (null for prep). flame_level: "low"/"medium"/"high" or null. is_prep: true for non-cooking steps. Include ingredient aliases in Hindi, Tamil, Telugu, Kannada. Be precise with quantities. The video may be in any language but return ALL output in English.`
+Rules: Split every cooking action into TWO steps: (1) add ingredients to pan (is_prep: true, no timer) and (2) cook/heat (is_prep: false, with timer and flame). timer_seconds ONLY for cooking steps. flame_level: "low"/"medium"/"high" or null. For quantities, add alternative metric measurements in parentheses where practical (e.g. "1 cup (240ml)", "2 large (approx. 200g)"). Include ingredient aliases in Hindi, Tamil, Telugu, Kannada. Be precise with quantities. The video may be in any language but return ALL output in English.`
 
   const res = await fetch(endpoint, {
     method: 'POST',
@@ -460,12 +520,25 @@ serve(async (req) => {
     return errorResponse('invalid_input', 'Missing or invalid videoId', 400)
   }
 
-  // Check config
-  const apiKey = Deno.env.get('GEMINI_API_KEY')
-  if (!apiKey) {
-    return errorResponse('config_error', 'Gemini API key not configured', 500)
+  // Check config — determine LLM provider
+  const provider = (Deno.env.get('LLM_PROVIDER') ?? 'gemini').toLowerCase()
+
+  let llmApiKey: string
+  let llmModel: string
+
+  if (provider === 'openai') {
+    llmApiKey = Deno.env.get('OPENAI_API_KEY') ?? ''
+    if (!llmApiKey) {
+      return errorResponse('config_error', 'OpenAI API key not configured', 500)
+    }
+    llmModel = Deno.env.get('OPENAI_MODEL') ?? 'gpt-4o-mini'
+  } else {
+    llmApiKey = Deno.env.get('GEMINI_API_KEY') ?? ''
+    if (!llmApiKey) {
+      return errorResponse('config_error', 'Gemini API key not configured', 500)
+    }
+    llmModel = Deno.env.get('GEMINI_MODEL') ?? 'gemini-2.5-flash-lite'
   }
-  const model = Deno.env.get('GEMINI_MODEL') ?? 'gemini-2.5-flash-lite'
 
   let transcript: { text: string; lang: string } | null = null
   let metadata: VideoMetadata = { title: '', author: '', lengthSeconds: '0' }
@@ -550,7 +623,9 @@ serve(async (req) => {
     )
 
     try {
-      recipeText = await callGemini(prompt, apiKey, model)
+      recipeText = provider === 'openai'
+        ? await callOpenAI(prompt, llmApiKey, llmModel)
+        : await callGemini(prompt, llmApiKey, llmModel)
     } catch (err: unknown) {
       const e = err as Record<string, unknown>
       if (e.status && e.code) {
@@ -559,10 +634,18 @@ serve(async (req) => {
       return errorResponse('gemini_error', 'Recipe generation failed.', 502)
     }
   } else {
-    // Fallback: try Gemini with video URL (fileData)
+    // Fallback: try Gemini with video URL (fileData) — Gemini-only capability
+    if (provider === 'openai') {
+      console.log(`[generate-recipe] ${videoId}: no transcript, OpenAI cannot process video directly`)
+      return errorResponse(
+        'no_captions',
+        'This video has no captions and could not be processed. Try a different video.',
+        422,
+      )
+    }
     console.log(`[generate-recipe] ${videoId}: no transcript, trying fileData fallback`)
     try {
-      recipeText = await callGeminiWithVideoUrl(videoId, apiKey, model)
+      recipeText = await callGeminiWithVideoUrl(videoId, llmApiKey, llmModel)
     } catch (err) {
       console.error(`[generate-recipe] ${videoId}: fileData fallback failed:`, err)
       return errorResponse(

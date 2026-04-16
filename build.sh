@@ -29,18 +29,27 @@ Set these before running the script:
 
   export SUPABASE_URL=https://xxxxxxxxxxxx.supabase.co
   export SUPABASE_ANON_KEY=eyJ...
-  export GEMINI_API_KEY=AIzaSy...
+  export GEMINI_API_KEY=AIzaSy...       # required if LLM_PROVIDER=gemini
+  export LLM_PROVIDER=gemini            # or 'openai'
+  export OPENAI_API_KEY=sk-...          # required if LLM_PROVIDER=openai
+  export OPENAI_MODEL=gpt-4o-mini       # optional
 
 Or source them from a .env file:
 
   set -a && source .env && set +a && ./build.sh
 "
 
-# Validate all three are set and non-empty.
+# Validate required variables.
 missing=()
 [[ -z "${SUPABASE_URL:-}"      ]] && missing+=("SUPABASE_URL")
 [[ -z "${SUPABASE_ANON_KEY:-}" ]] && missing+=("SUPABASE_ANON_KEY")
-[[ -z "${GEMINI_API_KEY:-}"    ]] && missing+=("GEMINI_API_KEY")
+
+LLM_PROVIDER="${LLM_PROVIDER:-gemini}"
+if [[ "$LLM_PROVIDER" == "openai" ]]; then
+  [[ -z "${OPENAI_API_KEY:-}" ]] && missing+=("OPENAI_API_KEY")
+else
+  [[ -z "${GEMINI_API_KEY:-}" ]] && missing+=("GEMINI_API_KEY")
+fi
 
 if [[ ${#missing[@]} -gt 0 ]]; then
   print_error "Missing required environment variables:"
@@ -51,7 +60,7 @@ if [[ ${#missing[@]} -gt 0 ]]; then
   exit 1
 fi
 
-print_ok "All environment variables are set."
+print_ok "All environment variables are set (LLM_PROVIDER=$LLM_PROVIDER)."
 
 # ─── Optional: select targets ─────────────────────────────────────────────────
 # By default, build both APK and AAB. Pass --apk-only or --aab-only to override.
@@ -73,7 +82,10 @@ done
 DART_DEFINES=(
   "--dart-define=SUPABASE_URL=$SUPABASE_URL"
   "--dart-define=SUPABASE_ANON_KEY=$SUPABASE_ANON_KEY"
-  "--dart-define=GEMINI_API_KEY=$GEMINI_API_KEY"
+  "--dart-define=GEMINI_API_KEY=${GEMINI_API_KEY:-}"
+  "--dart-define=LLM_PROVIDER=$LLM_PROVIDER"
+  "--dart-define=OPENAI_API_KEY=${OPENAI_API_KEY:-}"
+  "--dart-define=OPENAI_MODEL=${OPENAI_MODEL:-gpt-4o-mini}"
 )
 
 # ─── 1. Clean ─────────────────────────────────────────────────────────────────

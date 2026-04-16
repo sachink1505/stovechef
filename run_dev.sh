@@ -13,7 +13,13 @@ set -a && source .env && set +a
 missing=()
 [[ -z "${SUPABASE_URL:-}"      ]] && missing+=("SUPABASE_URL")
 [[ -z "${SUPABASE_ANON_KEY:-}" ]] && missing+=("SUPABASE_ANON_KEY")
-[[ -z "${GEMINI_API_KEY:-}"    ]] && missing+=("GEMINI_API_KEY")
+
+LLM_PROVIDER="${LLM_PROVIDER:-gemini}"
+if [[ "$LLM_PROVIDER" == "openai" ]]; then
+  [[ -z "${OPENAI_API_KEY:-}" ]] && missing+=("OPENAI_API_KEY")
+else
+  [[ -z "${GEMINI_API_KEY:-}" ]] && missing+=("GEMINI_API_KEY")
+fi
 
 if [[ ${#missing[@]} -gt 0 ]]; then
   echo "Error: Missing environment variables in .env: ${missing[*]}"
@@ -23,5 +29,8 @@ fi
 flutter run \
   --dart-define=SUPABASE_URL="$SUPABASE_URL" \
   --dart-define=SUPABASE_ANON_KEY="$SUPABASE_ANON_KEY" \
-  --dart-define=GEMINI_API_KEY="$GEMINI_API_KEY" \
+  --dart-define=GEMINI_API_KEY="${GEMINI_API_KEY:-}" \
+  --dart-define=LLM_PROVIDER="$LLM_PROVIDER" \
+  --dart-define=OPENAI_API_KEY="${OPENAI_API_KEY:-}" \
+  --dart-define=OPENAI_MODEL="${OPENAI_MODEL:-gpt-4o-mini}" \
   "$@"

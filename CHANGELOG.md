@@ -5,6 +5,18 @@ Format: `[YYYY-MM-DD] — commit hash — description`
 
 ---
 
+## 2026-04-16T12:00 — Switchable LLM provider: Gemini or OpenAI (v1.2.0+7)
+
+- Recipe generation can now use either **Google Gemini** (default) or **OpenAI**, controlled by the `LLM_PROVIDER` env variable
+- New env variables: `LLM_PROVIDER` (`gemini` | `openai`), `OPENAI_API_KEY`, `OPENAI_MODEL` (default: `gpt-4o-mini`)
+- Supabase edge function (`generate-recipe`): added `callOpenAI()` with full error handling, branches on `LLM_PROVIDER` secret
+- Flutter client fallback: added `_callOpenAI()` and `_callOpenAIWithAudio()` in `RecipeGeneratorService`
+- Build scripts (`run_dev.sh`, `build.sh`, `build_release.sh`): pass new dart-defines, API key validation is conditional per provider
+- Gemini video fileData fallback (captionless videos) gracefully returns `no_captions` when using OpenAI
+- Zero regression: existing Gemini setup works unchanged when `LLM_PROVIDER` is unset
+
+---
+
 ## 2026-04-14T18:00 — Full catalog: 491 platform recipes seeded (v1.1.0+6)
 
 - Completed batches 2–5 of the platform recipe seeder
