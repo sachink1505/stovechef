@@ -5,6 +5,16 @@ Format: `[YYYY-MM-DD] — commit hash — description`
 
 ---
 
+## 2026-04-17T00:00 — Play Store reviewer account + fixed OTP (v1.5.0+15)
+
+### Play Store review support
+- Added fixed-OTP login for `admin@stovechef.site` (email: `admin@stovechef.site`, OTP: `150595`)
+- Reviewer account bypasses the dynamic email OTP flow entirely — no email is sent
+- New Supabase Edge Function `reviewer-signin`: validates credentials server-side against Supabase secrets, creates the reviewer account if absent, and returns a magic-link token hash
+- Flutter `SupabaseService`: intercepts `signInWithOtp` / `verifyOtp` for the reviewer email; all other accounts are completely unaffected
+
+---
+
 ## 2026-04-16T21:30 — Browse tab, UI fixes, recipe images (v1.3.0+8)
 
 ### New: Browse Recipes tab with bottom navigation

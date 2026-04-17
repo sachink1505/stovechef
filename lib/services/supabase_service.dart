@@ -20,7 +20,15 @@ class SupabaseService {
   // AUTH
   // ──────────────────────────────────────────────────────────
 
+  // Fixed-OTP reviewer account for Play Store / App Store review.
+  static const String _reviewerEmail = 'admin@stovechef.site';
+
   Future<void> signInWithOtp(String email) async {
+    if (email.trim().toLowerCase() == _reviewerEmail) {
+      // Reviewer account uses a fixed OTP — no email needs to be sent.
+      _log('Reviewer account: skipping OTP send');
+      return;
+    }
     _log('Sending OTP to $email');
     try {
       await _client.auth.signInWithOtp(email: email, shouldCreateUser: true);
@@ -35,6 +43,9 @@ class SupabaseService {
   }
 
   Future<AuthResponse> verifyOtp(String email, String otp) async {
+    if (email.trim().toLowerCase() == _reviewerEmail) {
+      return _verifyReviewerOtp(otp);
+    }
     _log('Verifying OTP for $email');
     try {
       final response = await _client.auth.verifyOTP(
@@ -49,6 +60,38 @@ class SupabaseService {
       throw AppException(
         'OTP verification failed. Please try again.',
         code: 'otp_verify_failed',
+      );
+    }
+  }
+
+  Future<AuthResponse> _verifyReviewerOtp(String otp) async {
+    _log('Verifying reviewer OTP');
+    try {
+      final response = await _client.functions.invoke(
+        'reviewer-signin',
+        body: {'email': _reviewerEmail, 'otp': otp},
+      );
+      if (response.status != 200) {
+        throw AppException(
+          'Wrong OTP entered. Please check the OTP again.',
+          code: 'invalid_otp',
+        );
+      }
+      final data = response.data as Map<String, dynamic>;
+      final tokenHash = data['token_hash'] as String;
+      final authResponse = await _client.auth.verifyOTP(
+        tokenHash: tokenHash,
+        type: OtpType.magiclink,
+      );
+      return authResponse;
+    } on AppException {
+      rethrow;
+    } on AuthException catch (e) {
+      throw _mapAuthException(e);
+    } catch (e) {
+      throw AppException(
+        'Wrong OTP entered. Please check the OTP again.',
+        code: 'invalid_otp',
       );
     }
   }
